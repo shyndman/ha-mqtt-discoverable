@@ -497,6 +497,11 @@ class DeviceInfo(BaseModel):
             raise ValueError("Define identifiers or connections")
         return values
 
+class OriginIntegrationInfo(BaseModel):
+    """Information about where the device/entity originates"""
+    name: str
+    sw_version: Optional[str]
+    support_url: Optional[str]
 
 class EntityInfo(BaseModel):
     component: str
@@ -504,6 +509,8 @@ class EntityInfo(BaseModel):
     """Information about the sensor"""
     device: Optional[DeviceInfo] = None
     """Information about the device this sensor belongs to"""
+    origin: Optional[OriginIntegrationInfo] = None
+    """Information about where the device/entity originates"""
     device_class: Optional[str] = None
     """Sets the class of the device, changing the device state and icon that is
         displayed on the frontend."""

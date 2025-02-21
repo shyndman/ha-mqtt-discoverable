@@ -67,6 +67,10 @@ class SensorInfo(EntityInfo):
     When last_reset_value_template is set, the state_class option must be total.
     Available variables: entity_id.
     The entity_id can be used to reference the entity’s attributes."""
+    suggested_display_precision: Optional[int] = None
+    """
+    The number of decimals which should be used in the sensor’s state after rounding.
+    """
 
 
 class SwitchInfo(EntityInfo):

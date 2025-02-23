@@ -71,6 +71,12 @@ class SensorInfo(EntityInfo):
     """
     The number of decimals which should be used in the sensor’s state after rounding.
     """
+    options: Optional[list[str]]
+    """
+    List of allowed sensor state value. An empty list is not allowed. The
+    sensor’s device_class must be set to enum. The options option cannot be used
+    together with state_class or unit_of_measurement.
+    """
 
 
 class SwitchInfo(EntityInfo):

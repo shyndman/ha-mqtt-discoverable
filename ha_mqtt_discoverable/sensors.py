@@ -35,6 +35,11 @@ class BinarySensorInfo(EntityInfo):
     """Binary sensor specific information"""
 
     component: str = "binary_sensor"
+    value_template: Optional[str] = None
+    """
+    Defines a template to extract the value.
+    If the template throws an error,
+    the current state will be used instead."""
     off_delay: Optional[int] = None
     """For sensors that only send on state updates (like PIRs), this variable
     sets a delay in seconds after which the sensor's state will be updated back

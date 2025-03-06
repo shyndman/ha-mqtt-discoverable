@@ -511,9 +511,6 @@ class EntityInfo(BaseModel):
     """Information about the device this sensor belongs to"""
     origin: Optional[OriginIntegrationInfo] = None
     """Information about where the device/entity originates"""
-    device_class: Optional[str] = None
-    """Sets the class of the device, changing the device state and icon that is
-        displayed on the frontend."""
     enabled_by_default: Optional[bool] = None
     """Flag which defines if the entity should be enabled when first added."""
     entity_category: Optional[str] = None

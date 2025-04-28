@@ -1,5 +1,5 @@
 #
-#    Copyright 2022-2023 Joe Block <jpb@unixorn.net>
+#    Copyright 2022-2024 Joe Block <jpb@unixorn.net>
 #
 #    Licensed under the Apache License, Version 2.0 (the "License");
 #    you may not use this file except in compliance with the License.
@@ -13,18 +13,18 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 #
-
 import logging
-from threading import Event
 import time
+from threading import Event
+
 import pytest
+from paho.mqtt import publish
+from paho.mqtt.client import MQTTMessage
 
 from ha_mqtt_discoverable import EntityInfo, Settings, Subscriber
-from paho.mqtt.client import MQTTMessage
-import paho.mqtt.publish as publish
 
 
-@pytest.fixture()
+@pytest.fixture
 def subscriber() -> Subscriber[EntityInfo]:
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = EntityInfo(name="test", component="button")

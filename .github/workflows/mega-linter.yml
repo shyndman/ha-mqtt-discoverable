@@ -8,13 +8,17 @@ name: Lint Code Base
 
 #
 # Documentation:
-# https://help.github.com/en/articles/workflow-syntax-for-github-actions
+# https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions
 #
+
+permissions:
+  issues: write
+  pull-requests: write
 
 #############################
 # Start the job on all push #
 #############################
-on:
+on: # yamllint disable-line rule:truthy
   push:
     branches-ignore: [main]
     # Remove the line above to run when pushing to main
@@ -49,17 +53,19 @@ jobs:
       # Run Linter against code base #
       ################################
       - name: Lint Code Base
-        uses: oxsecurity/megalinter/flavors/python@v7
+        uses: oxsecurity/megalinter/flavors/python@v8
         env:
+          DOCKERFILE_HADOLINT_DISABLE_ERRORS: true
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PAT: ${{secrets.PAT}}
-          REPOSITORY_TRIVY_DISABLE_ERRORS: true
+          REPOSITORY_GITLEAKS_PR_COMMITS_SCAN: true
+          VALIDATE_ALL_CODEBASE: false
 
       # Upload Mega-Linter artifacts.
-      # They will be available on Github action page "Artifacts" section
+      # They will be available on GitHub action page "Artifacts" section
       - name: Archive production artifacts
-        if: ${{ success() }} || ${{ failure() }}
-        uses: actions/upload-artifact@v3
+        if: ${{ success() || failure() }}
+        uses: actions/upload-artifact@v4
         env:
           PAT: ${{secrets.PAT}}
         with:

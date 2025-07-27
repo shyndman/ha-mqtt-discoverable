@@ -306,7 +306,8 @@ class UpdateInfo(EntityInfo):
     component: str = "update"
     device_class: Optional[str] = None
     """Sets the class of the device, changing the device state and icon that is
-    displayed on the frontend."""
+    displayed on the frontend. For Update entities, use "firmware" for firmware updates
+    or None (default) for generic software updates."""
     entity_picture: Optional[str] = None
     """Picture URL for the entity."""
     latest_version_template: Optional[str] = None
@@ -661,6 +662,60 @@ class Update(Subscriber[UpdateInfo]):
     """
     Implements an MQTT update for Home Assistant MQTT discovery:
     https://www.home-assistant.io/integrations/update.mqtt/
+
+    This class provides support for Home Assistant Update entities, allowing you to:
+    1. Post update availability information
+    2. Automatically register with Home Assistant via MQTT discovery
+    3. Receive install command callbacks from Home Assistant
+    4. Track installation progress with percentage updates
+
+    Example:
+        Basic usage with device context:
+
+        >>> from ha_mqtt_discoverable import Settings, DeviceInfo
+        >>> from ha_mqtt_discoverable.sensors import Update, UpdateInfo
+        >>>
+        >>> # Define device info
+        >>> device = DeviceInfo(
+        ...     name="My Device",
+        ...     identifiers="device_123",
+        ...     manufacturer="Example Corp",
+        ...     model="Model X"
+        ... )
+        >>>
+        >>> # Create update entity info
+        >>> update_info = UpdateInfo(
+        ...     name="firmware_update",
+        ...     device=device,
+        ...     unique_id="device_123_firmware",
+        ...     title="Device Firmware",
+        ...     device_class="firmware"
+        ... )
+        >>>
+        >>> # Setup MQTT settings
+        >>> mqtt_settings = Settings.MQTT(host="localhost")
+        >>> settings = Settings(mqtt=mqtt_settings, entity=update_info)
+        >>>
+        >>> # Define install callback
+        >>> def handle_install(client, user_data, message):
+        ...     print("Install command received!")
+        ...     # Start your update process here
+        ...     update.set_progress(0)
+        ...     # ... perform update ...
+        ...     update.set_progress(100)
+        >>>
+        >>> # Create update entity
+        >>> update = Update(settings, handle_install)
+        >>>
+        >>> # Set current and available versions
+        >>> update.set_installed_version("1.2.3")
+        >>> update.set_latest_version("1.2.4")
+        >>>
+        >>> # Simple state (publishes string): no update available
+        >>> update.set_state("1.2.3")
+        >>>
+        >>> # Complex state (publishes JSON): update available or in progress
+        >>> update.set_state("1.2.3", "1.2.4", in_progress=True, progress=50)
     """
 
     def __init__(self, settings, command_callback, user_data=None):
@@ -708,9 +763,9 @@ class Update(Subscriber[UpdateInfo]):
             progress: Progress percentage (0-100)
         """
         if not 0 <= progress <= 100:
-            raise ValueError("Progress must be between 0 and 100")
+            raise ValueError(f"Progress must be between 0 and 100, got {progress}")
 
-        state = {
+        state: dict[str, bool | int] = {
             "in_progress": True,
             "update_percentage": progress
         }
@@ -733,7 +788,14 @@ class Update(Subscriber[UpdateInfo]):
             in_progress: Whether an update is currently in progress
             progress: Update progress percentage (0-100, optional)
         """
-        state = {"installed_version": installed}
+        # If only installed version is provided, publish as simple string
+        if latest is None and not in_progress and progress is None:
+            logger.info(f"Setting installed version for {self._entity.name} to {installed}")
+            self._update_state(installed)
+            return
+
+        # Otherwise, publish as JSON object
+        state: dict[str, str | bool | int] = {"installed_version": installed}
 
         if latest is not None:
             state["latest_version"] = latest
@@ -743,13 +805,13 @@ class Update(Subscriber[UpdateInfo]):
 
         if progress is not None:
             if not 0 <= progress <= 100:
-                raise ValueError("Progress must be between 0 and 100")
+                raise ValueError(f"Progress must be between 0 and 100, got {progress}")
             state["update_percentage"] = progress
 
         logger.info(f"Setting complete state for {self._entity.name}: {state}")
         self._update_state(state)
 
-    def _update_state(self, state: dict[str, Any] | str) -> None:
+    def _update_state(self, state: dict[str, str | bool | int] | str) -> None:
         """
         Update MQTT entity state.
 

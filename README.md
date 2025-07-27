@@ -29,6 +29,7 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
   - [Sensor](#sensor)
   - [Switch](#switch)
   - [Text](#text)
+  - [Update](#update)
 - [FAQ](#faq)
   - [Using an existing MQTT client](#using-an-existing-mqtt-client)
   - [I'm having problems on 32-bit ARM](#im-having-problems-on-32-bit-arm)
@@ -64,6 +65,7 @@ The following Home Assistant entities are currently implemented:
 - Sensor
 - Switch
 - Text
+- Update
 
 Each entity can be associated to a device. See below for details.
 
@@ -554,6 +556,63 @@ my_text = Text(settings, my_callback, user_data)
 
 # Set the initial text displayed in HA UI, publishing an MQTT message that gets picked up by HA
 my_text.set_text("Some awesome text")
+```
+
+### Update
+
+The update entity allows you to track software and firmware updates in Home Assistant.
+It can show current/latest versions, update progress, and receive install commands from HA.
+A `callback` function is required to handle install commands, as the following example shows:
+
+```py
+import json
+from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable.sensors import Update, UpdateInfo
+from ha_mqtt_discoverable.device_class import UpdateDeviceClass
+from paho.mqtt.client import Client, MQTTMessage
+
+# Configure the required parameters for the MQTT broker
+mqtt_settings = Settings.MQTT(host="localhost")
+
+# Information about the update entity
+update_info = UpdateInfo(
+    name="my-software",
+    device_class=UpdateDeviceClass.FIRMWARE,  # Optional: firmware, software, etc.
+    title="My Software",
+    release_summary="Bug fixes and improvements",
+    release_url="https://github.com/myproject/releases"
+)
+
+settings = Settings(mqtt=mqtt_settings, entity=update_info)
+
+# To receive install commands from HA, define a callback function:
+def my_callback(client: Client, user_data, message: MQTTMessage):
+    payload = message.payload.decode()
+    if payload == update_info.payload_install:  # Default: "INSTALL"
+        # Start your update process
+        start_my_update_process()
+        
+        # Report progress to HA (optional)
+        my_update.set_progress(25)
+        continue_update_process()
+        
+        my_update.set_progress(75)
+        finalize_update_process()
+        
+        # Mark update complete with new version
+        my_update.complete_update("1.2.3")
+
+# Define an optional object to be passed back to the callback
+user_data = "Some custom data"
+
+# Instantiate the update entity
+my_update = Update(settings, my_callback, user_data)
+
+# Set the current state (installed vs latest version), which also makes it discoverable
+my_update.set_state("1.2.2", "1.2.3")  # Shows update available
+
+# You can also indicate no update is available
+# my_update.set_state("1.2.3", "1.2.3")  # Up to date
 ```
 
 ## FAQ

@@ -30,16 +30,10 @@ def make_update():
         device: DeviceInfo | None = None,
         unique_id: str | None = None,
         latest_version_topic: str | None = None,
-        **kwargs
+        **kwargs,
     ):
         mqtt_settings = Settings.MQTT(host="localhost")
-        update_info = UpdateInfo(
-            name=name,
-            device=device,
-            unique_id=unique_id,
-            latest_version_topic=latest_version_topic,
-            **kwargs
-        )
+        update_info = UpdateInfo(name=name, device=device, unique_id=unique_id, latest_version_topic=latest_version_topic, **kwargs)
         settings = Settings(mqtt=mqtt_settings, entity=update_info)
         # Define an empty command_callback
         return Update(settings, lambda *_: None)
@@ -155,25 +149,33 @@ def test_set_progress_invalid_range(update: Update):
 
 def test_set_state_minimal(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
-        update.set_state("1.2.3")
+        update.set_state(installed="1.2.3")
+
+        call_args = mock_publish.call_args
+        published_data = call_args[0][1]
+
+        # Should publish simple string, not JSON
+        assert published_data == "1.2.3"
+        assert call_args[0][0] == update.state_topic
+
+
+def test_set_state_with_latest_version_only(update: Update):
+    with patch.object(update.mqtt_client, "publish") as mock_publish:
+        update.set_state(installed="1.2.3", latest="1.2.4")
 
         call_args = mock_publish.call_args
         published_data = json.loads(call_args[0][1])
 
+        # Should publish JSON when latest version is provided
         assert published_data["installed_version"] == "1.2.3"
-        assert "latest_version" not in published_data
+        assert published_data["latest_version"] == "1.2.4"
         assert "in_progress" not in published_data
         assert "update_percentage" not in published_data
 
 
 def test_set_state_complete(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
-        update.set_state(
-            installed="1.2.3",
-            latest="1.2.4",
-            in_progress=True,
-            progress=75
-        )
+        update.set_state(installed="1.2.3", latest="1.2.4", in_progress=True, progress=75)
 
         call_args = mock_publish.call_args
         published_data = json.loads(call_args[0][1])
@@ -186,12 +188,12 @@ def test_set_state_complete(update: Update):
 
 def test_set_state_invalid_progress(update: Update):
     with pytest.raises(ValueError, match="Progress must be between 0 and 100"):
-        update.set_state("1.2.3", progress=150)
+        update.set_state(installed="1.2.3", progress=150)
 
 
 def test_set_state_with_progress_zero(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
-        update.set_state("1.2.3", progress=0)
+        update.set_state(installed="1.2.3", progress=0)
 
         call_args = mock_publish.call_args
         published_data = json.loads(call_args[0][1])
@@ -201,7 +203,7 @@ def test_set_state_with_progress_zero(update: Update):
 
 def test_set_state_with_progress_hundred(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
-        update.set_state("1.2.3", progress=100)
+        update.set_state(installed="1.2.3", progress=100)
 
         call_args = mock_publish.call_args
         published_data = json.loads(call_args[0][1])
@@ -217,7 +219,7 @@ def test_update_state_with_string(update: Update):
 
 def test_update_state_with_dict(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
-        state_dict = {"installed_version": "1.2.3", "in_progress": False}
+        state_dict: dict[str, str | bool | int] = {"installed_version": "1.2.3", "in_progress": False}
         update._update_state(state_dict)
 
         call_args = mock_publish.call_args

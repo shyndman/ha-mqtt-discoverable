@@ -300,6 +300,31 @@ class SelectInfo(EntityInfo):
     """List of options that can be selected. An empty list or a list with a single item is allowed."""
 
 
+class UpdateInfo(EntityInfo):
+    """Update specific information"""
+
+    component: str = "update"
+    device_class: Optional[str] = None
+    """Sets the class of the device, changing the device state and icon that is
+    displayed on the frontend."""
+    entity_picture: Optional[str] = None
+    """Picture URL for the entity."""
+    latest_version_template: Optional[str] = None
+    """Defines a template to extract the latest version value."""
+    latest_version_topic: Optional[str] = None
+    """The MQTT topic subscribed to receive the latest version."""
+    payload_install: str = "INSTALL"
+    """The payload to send to trigger the update installation."""
+    release_summary: Optional[str] = None
+    """Summary of the release."""
+    release_url: Optional[str] = None
+    """URL to the release page."""
+    title: Optional[str] = None
+    """Title of the update."""
+    value_template: Optional[str] = None
+    """Defines a template to extract the installed version value."""
+
+
 class BinarySensor(Discoverable[BinarySensorInfo]):
     def off(self):
         """
@@ -630,3 +655,123 @@ class Select(Subscriber[SelectInfo]):
 
         logger.info(f"Publishing options {opt} to {self._entity.options}")
         self._state_helper(opt)
+
+
+class Update(Subscriber[UpdateInfo]):
+    """
+    Implements an MQTT update for Home Assistant MQTT discovery:
+    https://www.home-assistant.io/integrations/update.mqtt/
+    """
+
+    def __init__(self, settings, command_callback, user_data=None):
+        """
+        Initialize the Update entity.
+
+        Args:
+            settings: Settings for the entity
+            command_callback: Callback function invoked when install command is received
+            user_data: Optional user data passed to the callback
+        """
+        super().__init__(settings, command_callback, user_data)
+
+        # Set up latest version topic if configured
+        if self._entity.latest_version_topic:
+            self._latest_version_topic = self._entity.latest_version_topic
+        else:
+            self._latest_version_topic = f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/latest_version"
+
+    def set_installed_version(self, version: str) -> None:
+        """
+        Update the installed version.
+
+        Args:
+            version: The currently installed version
+        """
+        logger.info(f"Setting installed version for {self._entity.name} to {version}")
+        self._state_helper(version)
+
+    def set_latest_version(self, version: str) -> None:
+        """
+        Update the latest available version.
+
+        Args:
+            version: The latest available version
+        """
+        logger.info(f"Setting latest version for {self._entity.name} to {version}")
+        self._state_helper(version, topic=self._latest_version_topic)
+
+    def set_progress(self, progress: int) -> None:
+        """
+        Update the installation progress.
+
+        Args:
+            progress: Progress percentage (0-100)
+        """
+        if not 0 <= progress <= 100:
+            raise ValueError("Progress must be between 0 and 100")
+
+        state = {
+            "in_progress": True,
+            "update_percentage": progress
+        }
+        logger.info(f"Setting update progress for {self._entity.name} to {progress}%")
+        self._update_state(state)
+
+    def set_state(
+        self,
+        installed: str,
+        latest: str | None = None,
+        in_progress: bool = False,
+        progress: int | None = None
+    ) -> None:
+        """
+        Update the complete update state.
+
+        Args:
+            installed: Currently installed version
+            latest: Latest available version (optional)
+            in_progress: Whether an update is currently in progress
+            progress: Update progress percentage (0-100, optional)
+        """
+        state = {"installed_version": installed}
+
+        if latest is not None:
+            state["latest_version"] = latest
+
+        if in_progress:
+            state["in_progress"] = True
+
+        if progress is not None:
+            if not 0 <= progress <= 100:
+                raise ValueError("Progress must be between 0 and 100")
+            state["update_percentage"] = progress
+
+        logger.info(f"Setting complete state for {self._entity.name}: {state}")
+        self._update_state(state)
+
+    def _update_state(self, state: dict[str, Any] | str) -> None:
+        """
+        Update MQTT entity state.
+
+        Args:
+            state: State to publish (dict for JSON or str for simple value)
+        """
+        if isinstance(state, dict):
+            json_state = json.dumps(state)
+            self._state_helper(json_state)
+        else:
+            self._state_helper(state)
+
+    def generate_config(self) -> dict[str, Any]:
+        """Override base config to add update-specific topics"""
+        config = super().generate_config()
+
+        # Add update-specific topics
+        topics = {}
+        if hasattr(self, '_latest_version_topic'):
+            topics["latest_version_topic"] = self._latest_version_topic
+
+        # Add payload_install
+        topics["payload_install"] = self._entity.payload_install
+
+        return config | topics

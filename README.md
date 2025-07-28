@@ -609,10 +609,10 @@ user_data = "Some custom data"
 my_update = Update(settings, my_callback, user_data)
 
 # Set the current state (installed vs latest version), which also makes it discoverable
-my_update.set_state("1.2.2", "1.2.3")  # Shows update available
+my_update.set_state(installed="1.2.2", latest="1.2.3")  # Shows update available
 
 # You can also indicate no update is available
-# my_update.set_state("1.2.3", "1.2.3")  # Up to date
+# my_update.set_state(installed="1.2.3", latest="1.2.3")  # Up to date
 ```
 
 ## FAQ

@@ -765,28 +765,27 @@ class Update(Subscriber[UpdateInfo]):
         if not 0 <= progress <= 100:
             raise ValueError(f"Progress must be between 0 and 100, got {progress}")
 
-        state: dict[str, bool | int] = {
-            "in_progress": True,
-            "update_percentage": progress
-        }
+        state: dict[str, bool | int] = {"in_progress": True, "update_percentage": progress}
         logger.info(f"Setting update progress for {self._entity.name} to {progress}%")
         self._update_state(state)
 
     def set_state(
-        self,
-        installed: str,
-        latest: str | None = None,
-        in_progress: bool = False,
-        progress: int | None = None
+        self, *, installed: str, latest: str | None = None, in_progress: bool = False, progress: int | None = None
     ) -> None:
         """
         Update the complete update state.
+
+        All arguments are keyword-only to prevent confusion.
 
         Args:
             installed: Currently installed version
             latest: Latest available version (optional)
             in_progress: Whether an update is currently in progress
             progress: Update progress percentage (0-100, optional)
+
+        Example:
+            update.set_state(installed="1.0.0", latest="1.1.0")
+            update.set_state(installed="1.0.0", latest="1.1.0", in_progress=True, progress=50)
         """
         # If only installed version is provided, publish as simple string
         if latest is None and not in_progress and progress is None:
@@ -830,7 +829,7 @@ class Update(Subscriber[UpdateInfo]):
 
         # Add update-specific topics
         topics = {}
-        if hasattr(self, '_latest_version_topic'):
+        if hasattr(self, "_latest_version_topic"):
             topics["latest_version_topic"] = self._latest_version_topic
 
         # Add payload_install

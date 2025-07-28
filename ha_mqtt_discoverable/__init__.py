@@ -17,14 +17,15 @@ import logging
 import ssl
 from collections.abc import Callable
 from importlib import metadata
-from typing import Any, Generic, Optional, TypeVar, Union
+from typing import Any, Generic, Optional, TypeVar, cast
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import MQTTMessageInfo
+from paho.mqtt.enums import CallbackAPIVersion
 from pydantic import BaseModel, ConfigDict, model_validator
 
 # Read version from the package metadata
-__version__ = metadata.version(__package__)
+__version__ = metadata.version(cast(str, __package__))
 
 logger = logging.getLogger(__name__)
 
@@ -683,7 +684,7 @@ wrote_configuration: {self.wrote_configuration}
 
         mqtt_settings = self._settings.mqtt
         logger.debug(f"Creating mqtt client ({mqtt_settings.client_name}) for {mqtt_settings.host}:{mqtt_settings.port}")
-        self.mqtt_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, client_id=mqtt_settings.client_name)
+        self.mqtt_client = mqtt.Client(callback_api_version=CallbackAPIVersion.VERSION2, client_id=mqtt_settings.client_name)
         if mqtt_settings.tls_key:
             logger.info(f"Connecting to {mqtt_settings.host}:{mqtt_settings.port} with SSL and client certificate authentication")
             logger.debug(f"ca_certs={mqtt_settings.tls_ca_cert}")
@@ -726,7 +727,7 @@ wrote_configuration: {self.wrote_configuration}
     def _connect_client(self) -> None:
         """Connect the client to the MQTT broker, start its onw internal loop in
         a separate thread"""
-        result = self.mqtt_client.connect(self._settings.mqtt.host, self._settings.mqtt.port or 1883)
+        result = self.mqtt_client.connect(cast(str, self._settings.mqtt.host), self._settings.mqtt.port or 1883)
         # Check if we have established a connection
         if result != mqtt.MQTT_ERR_SUCCESS:
             raise RuntimeError("Error while connecting to MQTT broker")
@@ -736,7 +737,7 @@ wrote_configuration: {self.wrote_configuration}
         self.mqtt_client.loop_start()
 
     def _state_helper(
-        self, state: Optional[Union[str, float, int]], topic: Optional[str] = None, last_reset: Optional[str] = None, retain=True
+        self, state: str | float | int | None, topic: str | None = None, last_reset: str | None = None, retain=True
     ) -> Optional[MQTTMessageInfo]:
         """
         Write a state to the given MQTT topic, returning the result of client.publish()

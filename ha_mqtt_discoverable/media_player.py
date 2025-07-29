@@ -192,7 +192,7 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
         # Build entity topic with lowercase, dashified device name
         entity_topic = f"{entity.component}"
         if entity.device:
-            device_name = clean_string(entity.device.name).lower()
+            device_name = clean_string(entity.device.name)
             entity_topic += f"/{device_name}"
         entity_topic += f"/{clean_string(entity.name)}"
 

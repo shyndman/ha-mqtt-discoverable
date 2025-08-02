@@ -483,6 +483,9 @@ class DeviceInfo(BaseModel):
 
     name: str
     model: Optional[str] = None
+    """The model name of the device."""
+    model_id: Optional[str] = None
+    """The model identifier of the device."""
     manufacturer: Optional[str] = None
     sw_version: Optional[str] = None
     """Firmware version of the device"""
@@ -500,6 +503,11 @@ class DeviceInfo(BaseModel):
     """Identifier of a device that routes messages between this device and Home
         Assistant. Examples of such devices are hubs, or parent devices of a sub-device.
         This is used to show device topology in Home Assistant."""
+    serial_number: Optional[str] = None
+    """The serial number of the device. Unlike a serial number in the identifiers set, this does not
+    need to be unique."""
+    suggested_area: Optional[str] = None
+    """The suggested name for the area where the device is located."""
 
     @model_validator(mode="before")
     def must_have_identifiers_or_connection(cls, values):

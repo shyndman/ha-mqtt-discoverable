@@ -201,6 +201,53 @@ def test_set_state_with_progress_zero(update: Update):
         assert published_data["update_percentage"] == 0
 
 
+def test_update_without_command_callback():
+    """Test that Update entity without command callback doesn't publish command topic"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    update_info = UpdateInfo(name="test_readonly")
+    settings = Settings(mqtt=mqtt_settings, entity=update_info)
+    
+    # Create update without command callback
+    update_entity = Update(settings)
+    
+    # Generate config
+    config = update_entity.generate_config()
+    
+    # Assert that command topic is NOT in the config
+    assert "command_topic" not in config
+    
+    # Assert that other expected fields are still present
+    assert config["component"] == "update"
+    assert config["name"] == "test_readonly"
+    assert config["state_topic"] == update_entity.state_topic
+    assert config["latest_version_topic"] == update_entity._latest_version_topic
+    assert config["payload_install"] == "INSTALL"
+
+
+def test_update_with_command_callback():
+    """Test that Update entity with command callback publishes command topic (existing behavior)"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    update_info = UpdateInfo(name="test_with_callback")
+    settings = Settings(mqtt=mqtt_settings, entity=update_info)
+    
+    # Create update with command callback
+    update_entity = Update(settings, lambda *_: None)
+    
+    # Generate config
+    config = update_entity.generate_config()
+    
+    # Assert that command topic IS in the config
+    assert "command_topic" in config
+    assert config["command_topic"] == update_entity._command_topic
+    
+    # Assert that other expected fields are still present
+    assert config["component"] == "update"
+    assert config["name"] == "test_with_callback"
+    assert config["state_topic"] == update_entity.state_topic
+    assert config["latest_version_topic"] == update_entity._latest_version_topic
+    assert config["payload_install"] == "INSTALL"
+
+
 def test_set_state_with_progress_hundred(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
         update.set_state(installed="1.2.3", progress=100)

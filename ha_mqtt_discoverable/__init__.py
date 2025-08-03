@@ -874,7 +874,7 @@ class Subscriber(Discoverable[EntityType]):
     def __init__(
         self,
         settings: Settings[EntityType],
-        command_callback: Callable[[mqtt.Client, T, mqtt.MQTTMessage], Any],
+        command_callback: Optional[Callable[[mqtt.Client, T, mqtt.MQTTMessage], Any]] = None,
         user_data: T = None,
     ) -> None:
         """
@@ -883,35 +883,43 @@ class Subscriber(Discoverable[EntityType]):
         Args:
             settings: Settings for the entity we want to create in Home Assistant.
             See the `Settings` class for the available options.
-            command_callback: Callback function invoked when there is a command
-            coming from the MQTT command topic
+            command_callback: Optional callback function invoked when there is a command
+            coming from the MQTT command topic. If None, no command topic will be published.
         """
+        self._has_command_callback = command_callback is not None
 
-        # Callback invoked when the MQTT connection is established
-        def on_client_connected(client: mqtt.Client, *args):
-            # Publish this button in Home Assistant
-            # Subscribe to the command topic
-            result, _ = client.subscribe(self._command_topic, qos=1)
-            if result is not mqtt.MQTT_ERR_SUCCESS:
-                raise RuntimeError("Error subscribing to MQTT command topic")
+        if self._has_command_callback:
+            # Callback invoked when the MQTT connection is established
+            def on_client_connected(client: mqtt.Client, *args):
+                # Subscribe to the command topic
+                result, _ = client.subscribe(self._command_topic, qos=1)
+                if result is not mqtt.MQTT_ERR_SUCCESS:
+                    raise RuntimeError("Error subscribing to MQTT command topic")
 
-        # Invoke the parent init
-        super().__init__(settings, on_client_connected)
-        # Define the command topic to receive commands from HA, using `hmd` topic prefix
-        self._command_topic = f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/command"
+            # Invoke the parent init
+            super().__init__(settings, on_client_connected)
+            # Define the command topic to receive commands from HA, using `hmd` topic prefix
+            self._command_topic = f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/command"
 
-        # Register the user-supplied callback function with its user_data
-        self.mqtt_client.user_data_set(user_data)
-        self.mqtt_client.on_message = command_callback
+            # Register the user-supplied callback function with its user_data
+            self.mqtt_client.user_data_set(user_data)
+            self.mqtt_client.on_message = command_callback
 
-        # Manually connect the MQTT client
-        self._connect_client()
+            # Manually connect the MQTT client
+            self._connect_client()
+        else:
+            # No command callback provided - behave like Discoverable
+            super().__init__(settings)
 
     def generate_config(self) -> dict[str, Any]:
-        """Override base config to add the command topic of this switch"""
+        """Override base config to add the command topic if callback was provided"""
         config = super().generate_config()
-        # Add the MQTT command topic to the existing config object
-        topics = {
-            "command_topic": self._command_topic,
-        }
-        return config | topics
+        
+        # Only add command topic if callback was provided
+        if self._has_command_callback:
+            topics = {
+                "command_topic": self._command_topic,
+            }
+            return config | topics
+        else:
+            return config

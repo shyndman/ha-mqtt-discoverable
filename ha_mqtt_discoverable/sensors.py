@@ -718,13 +718,14 @@ class Update(Subscriber[UpdateInfo]):
         >>> update.set_state("1.2.3", "1.2.4", in_progress=True, progress=50)
     """
 
-    def __init__(self, settings, command_callback, user_data=None):
+    def __init__(self, settings, command_callback=None, user_data=None):
         """
         Initialize the Update entity.
 
         Args:
             settings: Settings for the entity
-            command_callback: Callback function invoked when install command is received
+            command_callback: Optional callback function invoked when install command is received.
+                If None, no command topic will be published and the entity will be read-only.
             user_data: Optional user data passed to the callback
         """
         super().__init__(settings, command_callback, user_data)

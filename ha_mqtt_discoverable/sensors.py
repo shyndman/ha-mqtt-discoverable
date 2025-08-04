@@ -19,8 +19,10 @@ from __future__ import annotations
 import json
 import logging
 from typing import Annotated, Any, Optional
+from typing_extensions import TypedDict, NotRequired
 
-from pydantic import Field
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, TypeAdapter
+from pydantic.types import conint
 
 from ha_mqtt_discoverable import (
     DeviceInfo,
@@ -308,6 +310,8 @@ class UpdateInfo(EntityInfo):
     """Sets the class of the device, changing the device state and icon that is
     displayed on the frontend. For Update entities, use "firmware" for firmware updates
     or None (default) for generic software updates."""
+    display_precision: int = 0
+    """The number of decimal places for version display precision."""
     entity_picture: Optional[str] = None
     """Picture URL for the entity."""
     latest_version_template: Optional[str] = None
@@ -658,19 +662,46 @@ class Select(Subscriber[SelectInfo]):
         self._state_helper(opt)
 
 
+class UpdateStatePayload(TypedDict, total=False):
+    """TypedDict for Update entity JSON state payloads.
+
+    Matches Home Assistant's MQTT_JSON_UPDATE_SCHEMA for full compatibility.
+    Note: Only JSON payloads are supported - non-JSON payloads are not supported by this implementation.
+    """
+    installed_version: NotRequired[str]
+    latest_version: NotRequired[str]
+    title: NotRequired[str]
+    release_summary: NotRequired[str]
+    release_url: NotRequired[HttpUrl]  # Strict URL validation
+    entity_picture: NotRequired[HttpUrl]  # Strict URL validation
+    in_progress: NotRequired[bool]
+    update_percentage: NotRequired[conint(ge=0, le=100)]  # Range validation  # type: ignore # Range validation
+
+
+# Create TypeAdapter for validation
+update_state_validator = TypeAdapter(UpdateStatePayload)
+
+
 class Update(Subscriber[UpdateInfo]):
     """
     Implements an MQTT update for Home Assistant MQTT discovery:
     https://www.home-assistant.io/integrations/update.mqtt/
 
     This class provides support for Home Assistant Update entities, allowing you to:
-    1. Post update availability information
+    1. Post update availability information with full metadata support
     2. Automatically register with Home Assistant via MQTT discovery
     3. Receive install command callbacks from Home Assistant
     4. Track installation progress with percentage updates
+    5. Dynamically update metadata (title, release info, entity picture)
+
+    Features:
+    - JSON payload validation using Pydantic models
+    - Full compatibility with Home Assistant's MQTT Update schema
+    - Automatic in_progress=True when update_percentage is set
+    - Support for all HA Update entity configuration options
 
     Example:
-        Basic usage with device context:
+        Basic usage with device context and rich metadata:
 
         >>> from ha_mqtt_discoverable import Settings, DeviceInfo
         >>> from ha_mqtt_discoverable.sensors import Update, UpdateInfo
@@ -683,13 +714,15 @@ class Update(Subscriber[UpdateInfo]):
         ...     model="Model X"
         ... )
         >>>
-        >>> # Create update entity info
+        >>> # Create update entity info with full configuration
         >>> update_info = UpdateInfo(
         ...     name="firmware_update",
         ...     device=device,
         ...     unique_id="device_123_firmware",
         ...     title="Device Firmware",
-        ...     device_class="firmware"
+        ...     device_class="firmware",
+        ...     display_precision=0,
+        ...     entity_picture="https://example.com/device.png"
         ... )
         >>>
         >>> # Setup MQTT settings
@@ -701,21 +734,28 @@ class Update(Subscriber[UpdateInfo]):
         ...     print("Install command received!")
         ...     # Start your update process here
         ...     update.set_progress(0)
-        ...     # ... perform update ...
+        ...     # ... perform update steps ...
+        ...     update.set_progress(50)
         ...     update.set_progress(100)
         >>>
         >>> # Create update entity
         >>> update = Update(settings, handle_install)
         >>>
-        >>> # Set current and available versions
-        >>> update.set_installed_version("1.2.3")
-        >>> update.set_latest_version("1.2.4")
+        >>> # Rich state with metadata (publishes validated JSON)
+        >>> update.set_state(
+        ...     installed="1.2.3",
+        ...     latest="1.2.4",
+        ...     title="Major Security Update",
+        ...     release_summary="Critical security fixes and performance improvements",
+        ...     release_url="https://example.com/releases/1.2.4",
+        ...     entity_picture="https://example.com/update-icon.png"
+        ... )
         >>>
-        >>> # Simple state (publishes string): no update available
-        >>> update.set_state("1.2.3")
+        >>> # Update in progress with automatic in_progress=True
+        >>> update.set_state(installed="1.2.3", latest="1.2.4", progress=25)
         >>>
-        >>> # Complex state (publishes JSON): update available or in progress
-        >>> update.set_state("1.2.3", "1.2.4", in_progress=True, progress=50)
+        >>> # Simple progress update
+        >>> update.set_progress(75)  # Automatically sets in_progress=True
     """
 
     def __init__(self, settings, command_callback=None, user_data=None):
@@ -744,7 +784,8 @@ class Update(Subscriber[UpdateInfo]):
             version: The currently installed version
         """
         logger.info(f"Setting installed version for {self._entity.name} to {version}")
-        self._state_helper(version)
+        state: UpdateStatePayload = {"installed_version": version, "in_progress": False}
+        self._update_state(state)
 
     def set_latest_version(self, version: str) -> None:
         """
@@ -766,12 +807,21 @@ class Update(Subscriber[UpdateInfo]):
         if not 0 <= progress <= 100:
             raise ValueError(f"Progress must be between 0 and 100, got {progress}")
 
-        state: dict[str, bool | int] = {"in_progress": True, "update_percentage": progress}
+        state: UpdateStatePayload = {"in_progress": True, "update_percentage": progress}
         logger.info(f"Setting update progress for {self._entity.name} to {progress}%")
         self._update_state(state)
 
     def set_state(
-        self, *, installed: str, latest: str | None = None, in_progress: bool = False, progress: int | None = None
+        self,
+        *,
+        installed: str,
+        latest: str | None = None,
+        in_progress: bool = False,
+        progress: int | None = None,
+        title: str | None = None,
+        release_summary: str | None = None,
+        release_url: str | None = None,
+        entity_picture: str | None = None
     ) -> None:
         """
         Update the complete update state.
@@ -782,52 +832,115 @@ class Update(Subscriber[UpdateInfo]):
             installed: Currently installed version
             latest: Latest available version (optional)
             in_progress: Whether an update is currently in progress
-            progress: Update progress percentage (0-100, optional)
+            progress: Update progress percentage (0-100, optional). When set, automatically sets in_progress=True
+            title: Title of the update (optional)
+            release_summary: Summary of the release (optional)
+            release_url: URL to the release page (optional)
+            entity_picture: Picture URL for the entity (optional)
 
         Example:
             update.set_state(installed="1.0.0", latest="1.1.0")
             update.set_state(installed="1.0.0", latest="1.1.0", in_progress=True, progress=50)
+            update.set_state(installed="1.0.0", latest="1.1.0", title="Major Update", release_summary="Bug fixes")
         """
-        # Always publish as JSON object
-        state: dict[str, str | bool | int] = {
+        # Build the state payload
+        state: UpdateStatePayload = {
             "installed_version": installed,
-            "in_progress": in_progress
         }
 
         if latest is not None:
             state["latest_version"] = latest
 
+        if title is not None:
+            state["title"] = title
+
+        if release_summary is not None:
+            state["release_summary"] = release_summary
+
+        if release_url is not None:
+            state["release_url"] = release_url
+
+        if entity_picture is not None:
+            state["entity_picture"] = entity_picture
+
         if progress is not None:
             if not 0 <= progress <= 100:
                 raise ValueError(f"Progress must be between 0 and 100, got {progress}")
             state["update_percentage"] = progress
+            # When update_percentage is set, automatically set in_progress=True (matches HA behavior)
+            in_progress = True
+
+        state["in_progress"] = in_progress
 
         logger.info(f"Setting complete state for {self._entity.name}: {state}")
         self._update_state(state)
 
-    def _update_state(self, state: dict[str, str | bool | int] | str) -> None:
+    def _update_state(self, state: UpdateStatePayload) -> None:
         """
-        Update MQTT entity state.
+        Update MQTT entity state with JSON validation.
 
         Args:
-            state: State to publish (dict for JSON or str for simple value)
+            state: State payload to publish as JSON
+
+        Note: Only JSON payloads are supported - non-JSON payloads are not supported by this implementation.
         """
-        if isinstance(state, dict):
-            json_state = json.dumps(state)
+        # Filter out None values before validation (TypedDict doesn't auto-exclude like BaseModel)
+        filtered_state = {k: v for k, v in state.items() if v is not None}
+
+        # Validate and serialize using TypeAdapter
+        try:
+            validated_payload = update_state_validator.validate_python(filtered_state)
+            json_state = update_state_validator.dump_json(validated_payload).decode('utf-8')
+            logger.debug(f"Validated update state payload: {validated_payload}")
             self._state_helper(json_state)
-        else:
-            self._state_helper(state)
+        except ValidationError as e:
+            logger.error(f"Invalid update state payload for {self._entity.name}: {e}")
+            raise ValueError(f"Invalid update state payload: {e}") from e
 
     def generate_config(self) -> dict[str, Any]:
-        """Override base config to add update-specific topics"""
+        """Override base config to add update-specific topics and configuration options"""
         config = super().generate_config()
 
-        # Add update-specific topics
-        topics = {}
+        # Add update-specific configuration options
+        update_config = {}
+
+        # Add display_precision if not default (0)
+        if self._entity.display_precision != 0:
+            update_config["display_precision"] = self._entity.display_precision
+
+        # Add device_class if specified
+        if self._entity.device_class is not None:
+            update_config["device_class"] = self._entity.device_class
+
+        # Add entity_picture if specified
+        if self._entity.entity_picture is not None:
+            update_config["entity_picture"] = self._entity.entity_picture
+
+        # Add latest_version_template if specified
+        if self._entity.latest_version_template is not None:
+            update_config["latest_version_template"] = self._entity.latest_version_template
+
+        # Add latest_version_topic if configured
         if hasattr(self, "_latest_version_topic"):
-            topics["latest_version_topic"] = self._latest_version_topic
+            update_config["latest_version_topic"] = self._latest_version_topic
 
-        # Add payload_install
-        topics["payload_install"] = self._entity.payload_install
+        # Add release_summary if specified
+        if self._entity.release_summary is not None:
+            update_config["release_summary"] = self._entity.release_summary
 
-        return config | topics
+        # Add release_url if specified
+        if self._entity.release_url is not None:
+            update_config["release_url"] = self._entity.release_url
+
+        # Add title if specified
+        if self._entity.title is not None:
+            update_config["title"] = self._entity.title
+
+        # Add value_template if specified
+        if self._entity.value_template is not None:
+            update_config["value_template"] = self._entity.value_template
+
+        # Always add payload_install
+        update_config["payload_install"] = self._entity.payload_install
+
+        return config | update_config

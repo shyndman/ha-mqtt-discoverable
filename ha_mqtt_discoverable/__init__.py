@@ -757,8 +757,7 @@ wrote_configuration: {self.wrote_configuration}
             logger.debug(f"State topic unset, using default: {self.state_topic}")
             topic = self.state_topic
         if last_reset:
-            state = {"state": state, "last_reset": last_reset}
-            state = json.dumps(state)
+            state = json.dumps({"state": state, "last_reset": last_reset})
         logger.debug(f"Writing '{state}' to {topic}")
 
         if self._settings.debug:
@@ -914,7 +913,7 @@ class Subscriber(Discoverable[EntityType]):
     def generate_config(self) -> dict[str, Any]:
         """Override base config to add the command topic if callback was provided"""
         config = super().generate_config()
-        
+
         # Only add command topic if callback was provided
         if self._has_command_callback:
             topics = {

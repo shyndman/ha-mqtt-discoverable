@@ -152,10 +152,13 @@ def test_set_state_minimal(update: Update):
         update.set_state(installed="1.2.3")
 
         call_args = mock_publish.call_args
-        published_data = call_args[0][1]
+        published_data = json.loads(call_args[0][1])
 
-        # Should publish simple string, not JSON
-        assert published_data == "1.2.3"
+        # Should publish JSON with installed_version and in_progress: false
+        assert published_data["installed_version"] == "1.2.3"
+        assert published_data["in_progress"] is False
+        assert "latest_version" not in published_data
+        assert "update_percentage" not in published_data
         assert call_args[0][0] == update.state_topic
 
 
@@ -169,7 +172,22 @@ def test_set_state_with_latest_version_only(update: Update):
         # Should publish JSON when latest version is provided
         assert published_data["installed_version"] == "1.2.3"
         assert published_data["latest_version"] == "1.2.4"
-        assert "in_progress" not in published_data
+        assert published_data["in_progress"] is False
+        assert "update_percentage" not in published_data
+
+def test_set_state_in_progress_false_explicit(update: Update):
+    """Test that in_progress=False is explicitly published in JSON state"""
+    with patch.object(update.mqtt_client, "publish") as mock_publish:
+        update.set_state(installed="1.2.3", latest="1.2.4", in_progress=False)
+
+        call_args = mock_publish.call_args
+        published_data = json.loads(call_args[0][1])
+
+        # Should explicitly include in_progress: false
+        assert published_data["installed_version"] == "1.2.3"
+        assert published_data["latest_version"] == "1.2.4"
+        assert published_data["in_progress"] is False
+        assert "in_progress" in published_data  # Key should be present
         assert "update_percentage" not in published_data
 
 

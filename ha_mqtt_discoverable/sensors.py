@@ -788,20 +788,14 @@ class Update(Subscriber[UpdateInfo]):
             update.set_state(installed="1.0.0", latest="1.1.0")
             update.set_state(installed="1.0.0", latest="1.1.0", in_progress=True, progress=50)
         """
-        # If only installed version is provided, publish as simple string
-        if latest is None and not in_progress and progress is None:
-            logger.info(f"Setting installed version for {self._entity.name} to {installed}")
-            self._update_state(installed)
-            return
-
-        # Otherwise, publish as JSON object
-        state: dict[str, str | bool | int] = {"installed_version": installed}
+        # Always publish as JSON object
+        state: dict[str, str | bool | int] = {
+            "installed_version": installed,
+            "in_progress": in_progress
+        }
 
         if latest is not None:
             state["latest_version"] = latest
-
-        if in_progress:
-            state["in_progress"] = True
 
         if progress is not None:
             if not 0 <= progress <= 100:

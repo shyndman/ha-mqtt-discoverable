@@ -633,13 +633,15 @@ class Discoverable(Generic[EntityType]):
         self._settings = settings
         self._entity = settings.entity
 
+        entity_topic_basename = clean_string(self._entity.object_id if self._entity.object_id is not None else self._entity.name)
+
         # Build the topic string: start from the type of component
         # e.g. `binary_sensor`
         self._entity_topic = f"{self._entity.component}"
         # If present, append the device name, e.g. `binary_sensor/mydevice`
         self._entity_topic += f"/{clean_string(self._entity.device.name)}" if self._entity.device else ""
         # Append the sensor name, e.g. `binary_sensor/mydevice/mysensor`
-        self._entity_topic += f"/{clean_string(self._entity.name)}"
+        self._entity_topic += f"/{entity_topic_basename}"
 
         # Full topic where we publish the configuration message to be picked up by HA
         # Prepend the `discovery_prefix`, default: `homeassistant`

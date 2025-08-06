@@ -19,10 +19,10 @@ from __future__ import annotations
 import json
 import logging
 from typing import Annotated, Any, Optional
-from typing_extensions import TypedDict, NotRequired
 
-from pydantic import BaseModel, Field, HttpUrl, ValidationError, TypeAdapter
+from pydantic import Field, HttpUrl, TypeAdapter, ValidationError
 from pydantic.types import conint
+from typing_extensions import NotRequired, TypedDict
 
 from ha_mqtt_discoverable import (
     DeviceInfo,
@@ -668,6 +668,7 @@ class UpdateStatePayload(TypedDict, total=False):
     Matches Home Assistant's MQTT_JSON_UPDATE_SCHEMA for full compatibility.
     Note: Only JSON payloads are supported - non-JSON payloads are not supported by this implementation.
     """
+
     installed_version: NotRequired[str]
     latest_version: NotRequired[str]
     title: NotRequired[str]
@@ -821,7 +822,7 @@ class Update(Subscriber[UpdateInfo]):
         title: str | None = None,
         release_summary: str | None = None,
         release_url: str | None = None,
-        entity_picture: str | None = None
+        entity_picture: str | None = None,
     ) -> None:
         """
         Update the complete update state.
@@ -890,7 +891,7 @@ class Update(Subscriber[UpdateInfo]):
         # Validate and serialize using TypeAdapter
         try:
             validated_payload = update_state_validator.validate_python(filtered_state)
-            json_state = update_state_validator.dump_json(validated_payload).decode('utf-8')
+            json_state = update_state_validator.dump_json(validated_payload).decode("utf-8")
             logger.debug(f"Validated update state payload: {validated_payload}")
             self._state_helper(json_state)
         except ValidationError as e:

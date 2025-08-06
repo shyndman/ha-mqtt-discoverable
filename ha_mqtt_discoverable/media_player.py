@@ -1,9 +1,86 @@
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import TypedDict
 
-from ha_mqtt_discoverable import EntityInfo, Subscriber
+from ha_mqtt_discoverable import Discoverable, EntityInfo
 
 logger = logging.getLogger(__name__)
+
+
+# Topic name constants
+class MediaPlayerTopics:
+    """Symbolic constants for media player MQTT topic names"""
+
+    PLAY = "play"
+    PAUSE = "pause"
+    STOP = "stop"
+    NEXT_TRACK = "next_track"
+    PREVIOUS_TRACK = "previous_track"
+    VOLUME_SET = "volume_set"
+    SEEK = "seek"
+    VOLUME_MUTE = "volume_mute"
+    SHUFFLE_SET = "shuffle_set"
+    REPEAT_SET = "repeat_set"
+    SELECT_SOURCE = "select_source"
+    SELECT_SOUND_MODE = "select_sound_mode"
+    TURN_ON = "turn_on"
+    TURN_OFF = "turn_off"
+    PLAY_MEDIA = "play_media"
+    BROWSE_MEDIA = "browse_media"
+
+    # State topics
+    STATE = "state"
+    TITLE = "title"
+    ARTIST = "artist"
+    ALBUM = "album"
+    DURATION = "duration"
+    POSITION = "position"
+    VOLUME = "volume"
+    ALBUMART = "albumart"
+    AVAILABILITY = "availability"
+
+
+# Command topics that require MQTT subscription
+COMMAND_TOPICS = {
+    MediaPlayerTopics.PLAY,
+    MediaPlayerTopics.PAUSE,
+    MediaPlayerTopics.STOP,
+    MediaPlayerTopics.NEXT_TRACK,
+    MediaPlayerTopics.PREVIOUS_TRACK,
+    MediaPlayerTopics.VOLUME_SET,
+    MediaPlayerTopics.SEEK,
+    MediaPlayerTopics.VOLUME_MUTE,
+    MediaPlayerTopics.SHUFFLE_SET,
+    MediaPlayerTopics.REPEAT_SET,
+    MediaPlayerTopics.SELECT_SOURCE,
+    MediaPlayerTopics.SELECT_SOUND_MODE,
+    MediaPlayerTopics.TURN_ON,
+    MediaPlayerTopics.TURN_OFF,
+    MediaPlayerTopics.PLAY_MEDIA,
+    MediaPlayerTopics.BROWSE_MEDIA,
+}
+
+
+class MediaPlayerCallbacks(TypedDict, total=False):
+    """Type-safe callback definitions for media player commands"""
+
+    play: Callable[..., None]
+    pause: Callable[..., None]
+    stop: Callable[..., None]
+    next_track: Callable[..., None]
+    previous_track: Callable[..., None]
+    volume_set: Callable[..., None]
+    seek: Callable[..., None]
+    volume_mute: Callable[..., None]
+    shuffle_set: Callable[..., None]
+    repeat_set: Callable[..., None]
+    select_source: Callable[..., None]
+    select_sound_mode: Callable[..., None]
+    turn_on: Callable[..., None]
+    turn_off: Callable[..., None]
+    play_media: Callable[..., None]
+    browse_media: Callable[..., None]
+
 
 class MediaPlayerInfo(EntityInfo):
     """Enhanced Media Player with property-based state management"""
@@ -111,76 +188,44 @@ class MediaPlayerInfo(EntityInfo):
     device_class: str | None = None
     """Type of media player: tv, speaker, receiver, etc."""
 
-    # === Feature Support Flags ===
-    # These determine which commands/features are available
 
-    supports_play: bool = False
-    """Player supports play command"""
-
-    supports_pause: bool = False
-    """Player supports pause command"""
-
-    supports_stop: bool = False
-    """Player supports stop command"""
-
-    supports_seek: bool = False
-    """Player supports seeking to specific position"""
-
-    supports_volume_set: bool = False
-    """Player supports setting volume level"""
-
-    supports_volume_mute: bool = False
-    """Player supports mute/unmute"""
-
-    supports_previous_track: bool = False
-    """Player supports previous track command"""
-
-    supports_next_track: bool = False
-    """Player supports next track command"""
-
-    supports_shuffle_set: bool = False
-    """Player supports setting shuffle mode"""
-
-    supports_repeat_set: bool = False
-    """Player supports setting repeat mode"""
-
-    supports_turn_on: bool = False
-    """Player supports turn on command"""
-
-    supports_turn_off: bool = False
-    """Player supports turn off command"""
-
-    supports_play_media: bool = False
-    """Player supports playing specific media (URLs, etc.)"""
-
-    supports_volume_step: bool = False
-    """Player supports volume up/down commands"""
-
-    supports_select_source: bool = False
-    """Player supports input source selection"""
-
-    supports_select_sound_mode: bool = False
-    """Player supports sound mode selection"""
-
-    supports_clear_playlist: bool = False
-    """Player supports clearing current playlist"""
-
-    supports_browse_media: bool = False
-    """Player supports media browsing"""
-
-
-class MediaPlayer(Subscriber[MediaPlayerInfo]):
+class MediaPlayer(Discoverable[MediaPlayerInfo]):
     """Enhanced MQTT media player with property-based state management"""
 
-    def __init__(self, settings, command_callbacks=None, user_data=None):
-        """Initialize MediaPlayer with automatic topic generation"""
-        self._command_callbacks = command_callbacks or {}
+    def __init__(self, settings, callbacks: MediaPlayerCallbacks, user_data=None):
+        """
+        Initialize MediaPlayer with callbacks determining supported features.
+
+        Args:
+            settings: MQTT and entity configuration settings
+            callbacks: Dict of command callbacks - presence determines which features are supported
+            user_data: Optional user data (unused but kept for compatibility)
+
+        Note:
+            Topics must be generated before calling super().__init__() because the
+            _on_client_connected callback needs access to self._topics for subscription.
+        """
+        self._callbacks = callbacks
         self._topics = {}
 
-        # Generate topics based on supported features before calling super()
+        # Generate topics based on provided callbacks before calling super()
+        # This is required because _on_client_connected needs self._topics
         self._generate_topics(settings)
 
-        super().__init__(settings, self._command_callback_handler, user_data)
+        super().__init__(settings, self._on_client_connected)
+
+        # Set up message callback for all subscribed topics
+        self.mqtt_client.on_message = self._command_callback_handler
+
+    def _on_client_connected(self, client, *args):
+        """Subscribe to all command topics based on provided callbacks"""
+        for topic_key, topic_url in self._topics.items():
+            # Only subscribe to command topics (not state topics)
+            if topic_key in COMMAND_TOPICS:
+                logger.info(f"Subscribing to command topic: {topic_url}")
+                result, _ = client.subscribe(topic_url, qos=1)
+                if result != 0:  # mqtt.MQTT_ERR_SUCCESS
+                    logger.error(f"Error subscribing to MQTT command topic: {topic_url}")
 
     def _generate_topics(self, settings):
         """Generate topics based on supported features and properties"""
@@ -198,80 +243,82 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
 
         state_prefix = settings.mqtt.state_prefix
 
-        # Generate command topics based on supported features
-        if entity.supports_play:
-            self._topics['play'] = f"{state_prefix}/{entity_topic}/play"
-        if entity.supports_pause:
-            self._topics['pause'] = f"{state_prefix}/{entity_topic}/pause"
-        if entity.supports_stop:
-            self._topics['stop'] = f"{state_prefix}/{entity_topic}/stop"
-        if entity.supports_next_track:
-            self._topics['next'] = f"{state_prefix}/{entity_topic}/next"
-        if entity.supports_previous_track:
-            self._topics['previous'] = f"{state_prefix}/{entity_topic}/previous"
-        if entity.supports_volume_set:
-            self._topics['volumeset'] = f"{state_prefix}/{entity_topic}/volumeset"
-        if entity.supports_seek:
-            self._topics['seek'] = f"{state_prefix}/{entity_topic}/seek"
-        if entity.supports_volume_mute:
-            self._topics['mute'] = f"{state_prefix}/{entity_topic}/mute"
-        if entity.supports_shuffle_set:
-            self._topics['shuffle'] = f"{state_prefix}/{entity_topic}/shuffle"
-        if entity.supports_repeat_set:
-            self._topics['repeat'] = f"{state_prefix}/{entity_topic}/repeat"
-        if entity.supports_select_source:
-            self._topics['source'] = f"{state_prefix}/{entity_topic}/source"
-        if entity.supports_select_sound_mode:
-            self._topics['sound_mode'] = f"{state_prefix}/{entity_topic}/sound_mode"
-        if entity.supports_turn_on:
-            self._topics['turn_on'] = f"{state_prefix}/{entity_topic}/turn_on"
-        if entity.supports_turn_off:
-            self._topics['turn_off'] = f"{state_prefix}/{entity_topic}/turn_off"
-        if entity.supports_play_media:
-            self._topics['play_media'] = f"{state_prefix}/{entity_topic}/play_media"
-        if entity.supports_browse_media:
-            self._topics['browse_media'] = f"{state_prefix}/{entity_topic}/browse_media"
+        # Generate command topics based on provided callbacks
+        if MediaPlayerTopics.PLAY in self._callbacks:
+            self._topics[MediaPlayerTopics.PLAY] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PLAY}"
+        if MediaPlayerTopics.PAUSE in self._callbacks:
+            self._topics[MediaPlayerTopics.PAUSE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PAUSE}"
+        if MediaPlayerTopics.STOP in self._callbacks:
+            self._topics[MediaPlayerTopics.STOP] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.STOP}"
+        if MediaPlayerTopics.NEXT_TRACK in self._callbacks:
+            self._topics[MediaPlayerTopics.NEXT_TRACK] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.NEXT_TRACK}"
+        if MediaPlayerTopics.PREVIOUS_TRACK in self._callbacks:
+            self._topics[MediaPlayerTopics.PREVIOUS_TRACK] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PREVIOUS_TRACK}"
+        if MediaPlayerTopics.VOLUME_SET in self._callbacks:
+            self._topics[MediaPlayerTopics.VOLUME_SET] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME_SET}"
+        if MediaPlayerTopics.SEEK in self._callbacks:
+            self._topics[MediaPlayerTopics.SEEK] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SEEK}"
+        if MediaPlayerTopics.VOLUME_MUTE in self._callbacks:
+            self._topics[MediaPlayerTopics.VOLUME_MUTE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME_MUTE}"
+        if MediaPlayerTopics.SHUFFLE_SET in self._callbacks:
+            self._topics[MediaPlayerTopics.SHUFFLE_SET] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SHUFFLE_SET}"
+        if MediaPlayerTopics.REPEAT_SET in self._callbacks:
+            self._topics[MediaPlayerTopics.REPEAT_SET] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.REPEAT_SET}"
+        if MediaPlayerTopics.SELECT_SOURCE in self._callbacks:
+            self._topics[MediaPlayerTopics.SELECT_SOURCE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SELECT_SOURCE}"
+        if MediaPlayerTopics.SELECT_SOUND_MODE in self._callbacks:
+            self._topics[MediaPlayerTopics.SELECT_SOUND_MODE] = (
+                f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SELECT_SOUND_MODE}"
+            )
+        if MediaPlayerTopics.TURN_ON in self._callbacks:
+            self._topics[MediaPlayerTopics.TURN_ON] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TURN_ON}"
+        if MediaPlayerTopics.TURN_OFF in self._callbacks:
+            self._topics[MediaPlayerTopics.TURN_OFF] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TURN_OFF}"
+        if MediaPlayerTopics.PLAY_MEDIA in self._callbacks:
+            self._topics[MediaPlayerTopics.PLAY_MEDIA] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PLAY_MEDIA}"
+        if MediaPlayerTopics.BROWSE_MEDIA in self._callbacks:
+            self._topics[MediaPlayerTopics.BROWSE_MEDIA] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.BROWSE_MEDIA}"
 
         # Generate state topics for properties that might be used
-        self._topics['state'] = f"{state_prefix}/{entity_topic}/state"
-        self._topics['title'] = f"{state_prefix}/{entity_topic}/title"
-        self._topics['artist'] = f"{state_prefix}/{entity_topic}/artist"
-        self._topics['album'] = f"{state_prefix}/{entity_topic}/album"
-        self._topics['duration'] = f"{state_prefix}/{entity_topic}/duration"
-        self._topics['position'] = f"{state_prefix}/{entity_topic}/position"
-        self._topics['volume'] = f"{state_prefix}/{entity_topic}/volume"
-        self._topics['albumart'] = f"{state_prefix}/{entity_topic}/albumart"
-        self._topics['availability'] = f"{state_prefix}/{entity_topic}/availability"
+        self._topics[MediaPlayerTopics.STATE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.STATE}"
+        self._topics[MediaPlayerTopics.TITLE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TITLE}"
+        self._topics[MediaPlayerTopics.ARTIST] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ARTIST}"
+        self._topics[MediaPlayerTopics.ALBUM] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUM}"
+        self._topics[MediaPlayerTopics.DURATION] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.DURATION}"
+        self._topics[MediaPlayerTopics.POSITION] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.POSITION}"
+        self._topics[MediaPlayerTopics.VOLUME] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME}"
+        self._topics[MediaPlayerTopics.ALBUMART] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUMART}"
+        self._topics[MediaPlayerTopics.AVAILABILITY] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.AVAILABILITY}"
 
     # === State Update Methods ===
 
     def set_state(self, state: str) -> None:
         """Update player state with validation"""
-        valid_states = ['playing', 'paused', 'stopped', 'idle', 'off']
+        valid_states = ["playing", "paused", "stopped", "idle", "off"]
         if state not in valid_states:
             raise ValueError(f"Invalid state '{state}'. Must be one of: {valid_states}")
 
         self._entity.state = state
         logger.info(f"Setting {self._entity.name} state to {state}")
-        self._state_helper(state, topic=self._topics['state'])
+        self._state_helper(state, topic=self._topics["state"])
 
     def set_title(self, title: str) -> None:
         """Update media title"""
         self._entity.media_title = title
         logger.info(f"Setting {self._entity.name} title to {title}")
-        self._state_helper(title, topic=self._topics['title'])
+        self._state_helper(title, topic=self._topics["title"])
 
     def set_artist(self, artist: str) -> None:
         """Update media artist"""
         self._entity.media_artist = artist
         logger.info(f"Setting {self._entity.name} artist to {artist}")
-        self._state_helper(artist, topic=self._topics['artist'])
+        self._state_helper(artist, topic=self._topics["artist"])
 
     def set_album(self, album: str) -> None:
         """Update media album"""
         self._entity.media_album_name = album
         logger.info(f"Setting {self._entity.name} album to {album}")
-        self._state_helper(album, topic=self._topics['album'])
+        self._state_helper(album, topic=self._topics["album"])
 
     def set_volume(self, volume: float) -> None:
         """Update volume level with validation"""
@@ -280,7 +327,7 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
 
         self._entity.volume_level = volume
         logger.info(f"Setting {self._entity.name} volume to {volume}")
-        self._state_helper(str(volume), topic=self._topics['volume'])
+        self._state_helper(str(volume), topic=self._topics["volume"])
 
     def set_position(self, position: int) -> None:
         """Update playback position"""
@@ -291,7 +338,7 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
 
         self._entity.media_position = position
         logger.info(f"Setting {self._entity.name} position to {position}")
-        self._state_helper(str(position), topic=self._topics['position'])
+        self._state_helper(str(position), topic=self._topics["position"])
 
     def set_duration(self, duration: int) -> None:
         """Update media duration"""
@@ -300,13 +347,13 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
 
         self._entity.media_duration = duration
         logger.info(f"Setting {self._entity.name} duration to {duration}")
-        self._state_helper(str(duration), topic=self._topics['duration'])
+        self._state_helper(str(duration), topic=self._topics["duration"])
 
     def set_albumart_url(self, url: str) -> None:
         """Update album art URL"""
         self._entity.media_image_url = url
         logger.info(f"Setting {self._entity.name} album art URL to {url}")
-        self._state_helper(url, topic=self._topics['albumart'])
+        self._state_helper(url, topic=self._topics["albumart"])
 
     def set_muted(self, muted: bool) -> None:
         """Update mute state"""
@@ -317,7 +364,7 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
 
     def set_shuffle(self, shuffle: bool) -> None:
         """Update shuffle state"""
-        if not self._entity.supports_shuffle_set:
+        if MediaPlayerTopics.SHUFFLE_SET not in self._topics:
             raise RuntimeError("Player does not support shuffle control")
 
         self._entity.shuffle = shuffle
@@ -325,10 +372,10 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
 
     def set_repeat(self, repeat: str) -> None:
         """Update repeat mode"""
-        if not self._entity.supports_repeat_set:
+        if MediaPlayerTopics.REPEAT_SET not in self._topics:
             raise RuntimeError("Player does not support repeat control")
 
-        valid_modes = ['off', 'all', 'one']
+        valid_modes = ["off", "all", "one"]
         if repeat not in valid_modes:
             raise ValueError(f"Invalid repeat mode '{repeat}'. Must be one of: {valid_modes}")
 
@@ -339,7 +386,7 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
         """Update entity availability"""
         message = "online" if available else "offline"
         logger.info(f"Setting {self._entity.name} availability to {message}")
-        self.mqtt_client.publish(self._topics['availability'], message, retain=True)
+        self.mqtt_client.publish(self._topics["availability"], message, retain=True)
 
     # === Bulk Update Methods ===
 
@@ -374,7 +421,7 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
     # === Command Callback Handling ===
 
     def _command_callback_handler(self, client, user_data, message):
-        """Enhanced command handler with better topic routing"""
+        """Command handler that routes MQTT messages to appropriate callbacks"""
         topic = message.topic
 
         try:
@@ -384,129 +431,95 @@ class MediaPlayer(Subscriber[MediaPlayerInfo]):
             return
 
         # Extract command from topic (last part after final slash)
-        command_name = topic.split('/')[-1]
+        command_name = topic.split("/")[-1]
 
-        # Route to appropriate callback
-        callback_map = {
-            'play': 'play',
-            'pause': 'pause',
-            'stop': 'stop',
-            'next': 'next',
-            'previous': 'previous',
-            'volumeset': 'volume_set',
-            'seek': 'seek',
-            'mute': 'mute',
-            'shuffle': 'shuffle_set',
-            'repeat': 'repeat_set',
-            'source': 'select_source',
-            'sound_mode': 'select_sound_mode',
-            'turn_on': 'turn_on',
-            'turn_off': 'turn_off',
-            'play_media': 'play_media',
-            'browse_media': 'browse_media'
-        }
-
-        callback_key = callback_map.get(command_name)
-        if callback_key and callback_key in self._command_callbacks:
+        # Route directly to callback using command name
+        if command_name in self._callbacks:
             try:
-                parsed_payload = self._parse_command_payload(callback_key, payload)
-                self._command_callbacks[callback_key](client, user_data, message, parsed_payload)
+                parsed_payload = self._parse_command_payload(command_name, payload)
+                self._callbacks[command_name](client, user_data, message, parsed_payload)
             except Exception as e:
-                logger.error(f"Error executing callback for {callback_key}: {e}")
+                logger.error(f"Error executing callback for {command_name}: {e}")
         else:
             logger.warning(f"No callback registered for command: {command_name}")
 
     def _parse_command_payload(self, command: str, payload: str):
         """Parse command payload based on command type"""
-        if command in ['volume_set', 'seek']:
+        if command in [MediaPlayerTopics.VOLUME_SET, MediaPlayerTopics.SEEK]:
             try:
                 return float(payload)
             except ValueError:
                 logger.error(f"Invalid numeric payload for {command}: {payload}")
                 return None
-        elif command in ['shuffle_set', 'mute']:
-            return payload.upper() == 'ON'
+        elif command in [MediaPlayerTopics.SHUFFLE_SET, MediaPlayerTopics.VOLUME_MUTE]:
+            return payload.upper() == "ON"
         else:
             return payload
 
-    def generate_config(self) -> dict[str, Any]:
-        """Generate discovery config based on supported features and properties"""
+    def generate_config(self) -> dict[str, str]:
+        """Generate discovery config based on available topics"""
         config = super().generate_config()
 
-        # Add supported features to config as Home Assistant features bitmask
-        supported_features = []
-
-        if self._entity.supports_play:
-            supported_features.append('play')
-        if self._entity.supports_pause:
-            supported_features.append('pause')
-        if self._entity.supports_stop:
-            supported_features.append('stop')
-        if self._entity.supports_seek:
-            supported_features.append('seek')
-        if self._entity.supports_volume_set:
-            supported_features.append('volume_set')
-        if self._entity.supports_volume_mute:
-            supported_features.append('volume_mute')
-        if self._entity.supports_previous_track:
-            supported_features.append('previous_track')
-        if self._entity.supports_next_track:
-            supported_features.append('next_track')
-        if self._entity.supports_shuffle_set:
-            supported_features.append('shuffle_set')
-        if self._entity.supports_repeat_set:
-            supported_features.append('repeat_set')
-        if self._entity.supports_turn_on:
-            supported_features.append('turn_on')
-        if self._entity.supports_turn_off:
-            supported_features.append('turn_off')
-        if self._entity.supports_play_media:
-            supported_features.append('play_media')
-        if self._entity.supports_volume_step:
-            supported_features.append('volume_step')
-        if self._entity.supports_select_source:
-            supported_features.append('select_source')
-        if self._entity.supports_select_sound_mode:
-            supported_features.append('select_sound_mode')
-        if self._entity.supports_clear_playlist:
-            supported_features.append('clear_playlist')
-        if self._entity.supports_browse_media:
-            supported_features.append('browse_media')
-
-        # Add topics for supported features
+        # Add all available topics to the config
+        # HA will determine supported features from topic presence
         topics = {}
 
-        # Add main state topic
-        topics['state_topic'] = self._topics['state']
+        # Add state topics (always present)
+        if MediaPlayerTopics.STATE in self._topics:
+            topics["state_topic"] = self._topics[MediaPlayerTopics.STATE]
+        if MediaPlayerTopics.AVAILABILITY in self._topics:
+            topics["availability_topic"] = self._topics[MediaPlayerTopics.AVAILABILITY]
+            topics["payload_available"] = "online"
+            topics["payload_not_available"] = "offline"
 
-        # Add availability topic
-        topics['availability_topic'] = self._topics['availability']
-        topics['payload_available'] = 'online'
-        topics['payload_not_available'] = 'offline'
+        # Add metadata topics (always present)
+        if MediaPlayerTopics.TITLE in self._topics:
+            topics["media_title_topic"] = self._topics[MediaPlayerTopics.TITLE]
+        if MediaPlayerTopics.ARTIST in self._topics:
+            topics["media_artist_topic"] = self._topics[MediaPlayerTopics.ARTIST]
+        if MediaPlayerTopics.ALBUM in self._topics:
+            topics["media_album_name_topic"] = self._topics[MediaPlayerTopics.ALBUM]
+        if MediaPlayerTopics.DURATION in self._topics:
+            topics["media_duration_topic"] = self._topics[MediaPlayerTopics.DURATION]
+        if MediaPlayerTopics.POSITION in self._topics:
+            topics["media_position_topic"] = self._topics[MediaPlayerTopics.POSITION]
+        if MediaPlayerTopics.VOLUME in self._topics:
+            topics["volume_level_topic"] = self._topics[MediaPlayerTopics.VOLUME]
+        if MediaPlayerTopics.ALBUMART in self._topics:
+            topics["media_image_url_topic"] = self._topics[MediaPlayerTopics.ALBUMART]
 
-        # Add metadata topics
-        topics['media_title_topic'] = self._topics['title']
-        topics['media_artist_topic'] = self._topics['artist']
-        topics['media_album_name_topic'] = self._topics['album']
-        topics['media_duration_topic'] = self._topics['duration']
-        topics['media_position_topic'] = self._topics['position']
-        topics['volume_level_topic'] = self._topics['volume']
-        topics['media_image_url_topic'] = self._topics['albumart']
-
-        # Add command topics for supported features
-        if self._entity.supports_play:
-            topics['play_topic'] = self._topics['play']
-        if self._entity.supports_pause:
-            topics['pause_topic'] = self._topics['pause']
-        if self._entity.supports_stop:
-            topics['stop_topic'] = self._topics['stop']
-        if self._entity.supports_next_track:
-            topics['next_topic'] = self._topics['next']
-        if self._entity.supports_previous_track:
-            topics['previous_topic'] = self._topics['previous']
-        if self._entity.supports_volume_set:
-            topics['volume_set_topic'] = self._topics['volumeset']
-        if self._entity.supports_seek:
-            topics['seek_topic'] = self._topics['seek']
+        # Add command topics (only present if callbacks provided)
+        if MediaPlayerTopics.PLAY in self._topics:
+            topics["play_topic"] = self._topics[MediaPlayerTopics.PLAY]
+        if MediaPlayerTopics.PAUSE in self._topics:
+            topics["pause_topic"] = self._topics[MediaPlayerTopics.PAUSE]
+        if MediaPlayerTopics.STOP in self._topics:
+            topics["stop_topic"] = self._topics[MediaPlayerTopics.STOP]
+        if MediaPlayerTopics.NEXT_TRACK in self._topics:
+            topics["next_track_topic"] = self._topics[MediaPlayerTopics.NEXT_TRACK]
+        if MediaPlayerTopics.PREVIOUS_TRACK in self._topics:
+            topics["previous_track_topic"] = self._topics[MediaPlayerTopics.PREVIOUS_TRACK]
+        if MediaPlayerTopics.VOLUME_SET in self._topics:
+            topics["volume_set_topic"] = self._topics[MediaPlayerTopics.VOLUME_SET]
+        if MediaPlayerTopics.SEEK in self._topics:
+            topics["seek_topic"] = self._topics[MediaPlayerTopics.SEEK]
+        if MediaPlayerTopics.VOLUME_MUTE in self._topics:
+            topics["volume_mute_topic"] = self._topics[MediaPlayerTopics.VOLUME_MUTE]
+        if MediaPlayerTopics.SHUFFLE_SET in self._topics:
+            topics["shuffle_set_topic"] = self._topics[MediaPlayerTopics.SHUFFLE_SET]
+        if MediaPlayerTopics.REPEAT_SET in self._topics:
+            topics["repeat_set_topic"] = self._topics[MediaPlayerTopics.REPEAT_SET]
+        if MediaPlayerTopics.SELECT_SOURCE in self._topics:
+            topics["select_source_topic"] = self._topics[MediaPlayerTopics.SELECT_SOURCE]
+        if MediaPlayerTopics.SELECT_SOUND_MODE in self._topics:
+            topics["select_sound_mode_topic"] = self._topics[MediaPlayerTopics.SELECT_SOUND_MODE]
+        if MediaPlayerTopics.TURN_ON in self._topics:
+            topics["turn_on_topic"] = self._topics[MediaPlayerTopics.TURN_ON]
+        if MediaPlayerTopics.TURN_OFF in self._topics:
+            topics["turn_off_topic"] = self._topics[MediaPlayerTopics.TURN_OFF]
+        if MediaPlayerTopics.PLAY_MEDIA in self._topics:
+            topics["play_media_topic"] = self._topics[MediaPlayerTopics.PLAY_MEDIA]
+        if MediaPlayerTopics.BROWSE_MEDIA in self._topics:
+            topics["browse_media_topic"] = self._topics[MediaPlayerTopics.BROWSE_MEDIA]
 
         return config | topics

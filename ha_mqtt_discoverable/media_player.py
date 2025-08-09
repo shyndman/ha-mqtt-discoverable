@@ -253,44 +253,40 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         entity_topic += f"/{clean_string(entity.name)}"
 
         state_prefix = settings.mqtt.state_prefix
+        logger.debug(f"Using base entity topic: {state_prefix}/{entity_topic}")
+
+        def generate_topic(topic_key: str) -> bool:
+            """Generate topic if callback exists"""
+            if topic_key in self._callbacks:
+                self._topics[topic_key] = f"{state_prefix}/{entity_topic}/{topic_key}"
+                return True
+            return False
 
         # Generate command topics based on provided callbacks
-        if MediaPlayerTopics.PLAY in self._callbacks:
-            self._topics[MediaPlayerTopics.PLAY] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PLAY}"
-        if MediaPlayerTopics.PAUSE in self._callbacks:
-            self._topics[MediaPlayerTopics.PAUSE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PAUSE}"
-        if MediaPlayerTopics.STOP in self._callbacks:
-            self._topics[MediaPlayerTopics.STOP] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.STOP}"
-        if MediaPlayerTopics.NEXT_TRACK in self._callbacks:
-            self._topics[MediaPlayerTopics.NEXT_TRACK] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.NEXT_TRACK}"
-        if MediaPlayerTopics.PREVIOUS_TRACK in self._callbacks:
-            self._topics[MediaPlayerTopics.PREVIOUS_TRACK] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PREVIOUS_TRACK}"
-        if MediaPlayerTopics.VOLUME_SET in self._callbacks:
-            self._topics[MediaPlayerTopics.VOLUME_SET] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME_SET}"
-        if MediaPlayerTopics.SEEK in self._callbacks:
-            self._topics[MediaPlayerTopics.SEEK] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SEEK}"
-        if MediaPlayerTopics.VOLUME_MUTE in self._callbacks:
-            self._topics[MediaPlayerTopics.VOLUME_MUTE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME_MUTE}"
-        if MediaPlayerTopics.SHUFFLE_SET in self._callbacks:
-            self._topics[MediaPlayerTopics.SHUFFLE_SET] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SHUFFLE_SET}"
-        if MediaPlayerTopics.REPEAT_SET in self._callbacks:
-            self._topics[MediaPlayerTopics.REPEAT_SET] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.REPEAT_SET}"
-        if MediaPlayerTopics.SELECT_SOURCE in self._callbacks:
-            self._topics[MediaPlayerTopics.SELECT_SOURCE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SELECT_SOURCE}"
-        if MediaPlayerTopics.SELECT_SOUND_MODE in self._callbacks:
-            self._topics[MediaPlayerTopics.SELECT_SOUND_MODE] = (
-                f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.SELECT_SOUND_MODE}"
-            )
-        if MediaPlayerTopics.TURN_ON in self._callbacks:
-            self._topics[MediaPlayerTopics.TURN_ON] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TURN_ON}"
-        if MediaPlayerTopics.TURN_OFF in self._callbacks:
-            self._topics[MediaPlayerTopics.TURN_OFF] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TURN_OFF}"
-        if MediaPlayerTopics.PLAY_MEDIA in self._callbacks:
-            self._topics[MediaPlayerTopics.PLAY_MEDIA] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.PLAY_MEDIA}"
-        if MediaPlayerTopics.BROWSE_MEDIA in self._callbacks:
-            self._topics[MediaPlayerTopics.BROWSE_MEDIA] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.BROWSE_MEDIA}"
+        command_topic_keys = [
+            MediaPlayerTopics.PLAY,
+            MediaPlayerTopics.PAUSE,
+            MediaPlayerTopics.STOP,
+            MediaPlayerTopics.NEXT_TRACK,
+            MediaPlayerTopics.PREVIOUS_TRACK,
+            MediaPlayerTopics.VOLUME_SET,
+            MediaPlayerTopics.SEEK,
+            MediaPlayerTopics.VOLUME_MUTE,
+            MediaPlayerTopics.SHUFFLE_SET,
+            MediaPlayerTopics.REPEAT_SET,
+            MediaPlayerTopics.SELECT_SOURCE,
+            MediaPlayerTopics.SELECT_SOUND_MODE,
+            MediaPlayerTopics.TURN_ON,
+            MediaPlayerTopics.TURN_OFF,
+            MediaPlayerTopics.PLAY_MEDIA,
+            MediaPlayerTopics.BROWSE_MEDIA,
+        ]
+        command_topics_generated = sum(int(generate_topic(topic_key)) for topic_key in command_topic_keys)
+
+        logger.debug(f"Generated {command_topics_generated} command topics for callbacks")
 
         # Generate state topics for properties that might be used
+        state_topics_generated = 9  # We always generate 9 state topics
         self._topics[MediaPlayerTopics.STATE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.STATE}"
         self._topics[MediaPlayerTopics.TITLE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TITLE}"
         self._topics[MediaPlayerTopics.ARTIST] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ARTIST}"
@@ -300,6 +296,12 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         self._topics[MediaPlayerTopics.VOLUME] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME}"
         self._topics[MediaPlayerTopics.ALBUMART] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUMART}"
         self._topics[MediaPlayerTopics.AVAILABILITY] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.AVAILABILITY}"
+
+        logger.debug(f"Generated {state_topics_generated} state topics (always included)")
+        logger.debug(
+            f"Total topics generated for MediaPlayer '{entity.name}': {len(self._topics)} "
+            f"({command_topics_generated} command + {state_topics_generated} state)"
+        )
 
     # === State Update Methods ===
 
@@ -393,28 +395,29 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         self._entity.repeat = repeat
         logger.info(f"Setting {self._entity.name} repeat to {repeat}")
 
-    def set_availability(self, available: bool) -> None:
+    def set_availability(self, availability: bool) -> None:
         """Update entity availability"""
-        message = "online" if available else "offline"
+        message = "online" if availability else "offline"
         logger.info(f"Setting {self._entity.name} availability to {message}")
         self.mqtt_client.publish(self._topics["availability"], message, retain=True)
 
     # === Bulk Update Methods ===
 
-    def update_media_info(self, title=None, artist=None, album=None, duration=None, position=None, albumart_url=None):
-        """Update multiple media properties at once"""
-        if title is not None:
-            self.set_title(title)
-        if artist is not None:
-            self.set_artist(artist)
-        if album is not None:
-            self.set_album(album)
-        if duration is not None:
-            self.set_duration(duration)
-        if position is not None:
-            self.set_position(position)
-        if albumart_url is not None:
-            self.set_albumart_url(albumart_url)
+    def update_media_info(self, title, duration, artist=None, album=None, albumart_url=None):
+        """Update media properties, clearing all fields first then setting provided values"""
+        # Prepare final values - use empty strings/zero for clearing, or provided values
+        final_title = title
+        final_duration = duration
+        final_artist = artist if artist is not None else ""
+        final_album = album if album is not None else ""
+        final_albumart_url = albumart_url if albumart_url is not None else ""
+
+        # Set all values once
+        self.set_title(final_title)
+        self.set_duration(final_duration)
+        self.set_artist(final_artist)
+        self.set_album(final_album)
+        self.set_albumart_url(final_albumart_url)
 
     def update_playback_state(self, state=None, volume=None, muted=None, shuffle=None, repeat=None):
         """Update multiple playback properties at once"""
@@ -434,103 +437,117 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
     def _command_callback_handler(self, client, user_data, message):
         """Command handler that routes MQTT messages to appropriate callbacks"""
         topic = message.topic
+        logger.debug(f"Received MQTT message on topic: {topic}")
 
         try:
             payload = message.payload.decode()
+            logger.debug(f"Decoded payload: {payload}")
         except UnicodeDecodeError as e:
             logger.error(f"Failed to decode payload for topic {topic}: {e}")
             return
 
         # Extract command from topic (last part after final slash)
         command_name = topic.split("/")[-1]
+        logger.debug(f"Extracted command name: {command_name}")
 
         # Route directly to callback using command name
         if command_name in self._callbacks:
             try:
                 parsed_payload = self._parse_command_payload(command_name, payload)
-                self._callbacks[command_name](client, user_data, message, parsed_payload)
+                logger.debug(f"Parsed payload for {command_name}: {parsed_payload}")
+                logger.debug(f"Invoking callback for command: {command_name}")
+                self._callbacks[command_name](client, user_data, message)
+                logger.debug(f"Successfully executed callback for {command_name}")
             except Exception as e:
-                logger.error(f"Error executing callback for {command_name}: {e}")
+                logger.error(f"Error executing callback for {command_name}: {e}", exc_info=True)
         else:
             logger.warning(f"No callback registered for command: {command_name}")
 
     def _parse_command_payload(self, command: str, payload: str):
         """Parse command payload based on command type"""
+        logger.debug(f"Parsing payload for command '{command}': {payload}")
         if command in [MediaPlayerTopics.VOLUME_SET, MediaPlayerTopics.SEEK]:
             try:
-                return float(payload)
+                parsed_value = float(payload)
+                logger.debug(f"Parsed numeric payload for {command}: {parsed_value}")
+                return parsed_value
             except ValueError:
                 logger.error(f"Invalid numeric payload for {command}: {payload}")
                 return None
         elif command in [MediaPlayerTopics.SHUFFLE_SET, MediaPlayerTopics.VOLUME_MUTE]:
-            return payload.upper() == "ON"
+            parsed_value = payload.upper() == "ON"
+            logger.debug(f"Parsed boolean payload for {command}: {parsed_value} (from '{payload}')")
+            return parsed_value
         else:
+            logger.debug(f"Using raw payload for {command}: {payload}")
             return payload
 
     def generate_config(self) -> dict[str, str]:
         """Generate discovery config based on available topics"""
+        logger.debug(f"Generating Home Assistant discovery config for MediaPlayer '{self._entity.name}'")
         config = super().generate_config()
 
         # Add all available topics to the config
         # HA will determine supported features from topic presence
         topics = {}
+        logger.debug(f"Starting with base config keys: {list(config.keys())}")
+        logger.debug(f"Processing {len(self._topics)} topics for config generation")
+
+        def add_topic(topic_key: str, config_key: str, category: str) -> bool:
+            """Add topic to config if it exists, with debug logging"""
+            if topic_key in self._topics:
+                topics[config_key] = self._topics[topic_key]
+                logger.debug(f"Added {category} topic '{config_key}': {self._topics[topic_key]}")
+                return True
+            return False
 
         # Add state topics (always present)
-        if MediaPlayerTopics.STATE in self._topics:
-            topics["state_topic"] = self._topics[MediaPlayerTopics.STATE]
-        if MediaPlayerTopics.AVAILABILITY in self._topics:
-            topics["availability_topic"] = self._topics[MediaPlayerTopics.AVAILABILITY]
+        state_topics_added = 0
+        state_topics_added += int(add_topic(MediaPlayerTopics.STATE, "state_topic", "state"))
+        if add_topic(MediaPlayerTopics.AVAILABILITY, "availability_topic", "availability"):
             topics["payload_available"] = "online"
             topics["payload_not_available"] = "offline"
+            state_topics_added += 1
 
         # Add metadata topics (always present)
-        if MediaPlayerTopics.TITLE in self._topics:
-            topics["media_title_topic"] = self._topics[MediaPlayerTopics.TITLE]
-        if MediaPlayerTopics.ARTIST in self._topics:
-            topics["media_artist_topic"] = self._topics[MediaPlayerTopics.ARTIST]
-        if MediaPlayerTopics.ALBUM in self._topics:
-            topics["media_album_name_topic"] = self._topics[MediaPlayerTopics.ALBUM]
-        if MediaPlayerTopics.DURATION in self._topics:
-            topics["media_duration_topic"] = self._topics[MediaPlayerTopics.DURATION]
-        if MediaPlayerTopics.POSITION in self._topics:
-            topics["media_position_topic"] = self._topics[MediaPlayerTopics.POSITION]
-        if MediaPlayerTopics.VOLUME in self._topics:
-            topics["volume_level_topic"] = self._topics[MediaPlayerTopics.VOLUME]
-        if MediaPlayerTopics.ALBUMART in self._topics:
-            topics["media_image_url_topic"] = self._topics[MediaPlayerTopics.ALBUMART]
+        metadata_topics = [
+            (MediaPlayerTopics.TITLE, "media_title_topic"),
+            (MediaPlayerTopics.ARTIST, "media_artist_topic"),
+            (MediaPlayerTopics.ALBUM, "media_album_name_topic"),
+            (MediaPlayerTopics.DURATION, "media_duration_topic"),
+            (MediaPlayerTopics.POSITION, "media_position_topic"),
+            (MediaPlayerTopics.VOLUME, "volume_level_topic"),
+            (MediaPlayerTopics.ALBUMART, "media_image_url_topic"),
+        ]
+        metadata_topics_added = sum(int(add_topic(topic_key, config_key, "metadata")) for topic_key, config_key in metadata_topics)
+        logger.debug(f"Added {metadata_topics_added} metadata topics to config")
 
         # Add command topics (only present if callbacks provided)
-        if MediaPlayerTopics.PLAY in self._topics:
-            topics["play_topic"] = self._topics[MediaPlayerTopics.PLAY]
-        if MediaPlayerTopics.PAUSE in self._topics:
-            topics["pause_topic"] = self._topics[MediaPlayerTopics.PAUSE]
-        if MediaPlayerTopics.STOP in self._topics:
-            topics["stop_topic"] = self._topics[MediaPlayerTopics.STOP]
-        if MediaPlayerTopics.NEXT_TRACK in self._topics:
-            topics["next_track_topic"] = self._topics[MediaPlayerTopics.NEXT_TRACK]
-        if MediaPlayerTopics.PREVIOUS_TRACK in self._topics:
-            topics["previous_track_topic"] = self._topics[MediaPlayerTopics.PREVIOUS_TRACK]
-        if MediaPlayerTopics.VOLUME_SET in self._topics:
-            topics["volume_set_topic"] = self._topics[MediaPlayerTopics.VOLUME_SET]
-        if MediaPlayerTopics.SEEK in self._topics:
-            topics["seek_topic"] = self._topics[MediaPlayerTopics.SEEK]
-        if MediaPlayerTopics.VOLUME_MUTE in self._topics:
-            topics["volume_mute_topic"] = self._topics[MediaPlayerTopics.VOLUME_MUTE]
-        if MediaPlayerTopics.SHUFFLE_SET in self._topics:
-            topics["shuffle_set_topic"] = self._topics[MediaPlayerTopics.SHUFFLE_SET]
-        if MediaPlayerTopics.REPEAT_SET in self._topics:
-            topics["repeat_set_topic"] = self._topics[MediaPlayerTopics.REPEAT_SET]
-        if MediaPlayerTopics.SELECT_SOURCE in self._topics:
-            topics["select_source_topic"] = self._topics[MediaPlayerTopics.SELECT_SOURCE]
-        if MediaPlayerTopics.SELECT_SOUND_MODE in self._topics:
-            topics["select_sound_mode_topic"] = self._topics[MediaPlayerTopics.SELECT_SOUND_MODE]
-        if MediaPlayerTopics.TURN_ON in self._topics:
-            topics["turn_on_topic"] = self._topics[MediaPlayerTopics.TURN_ON]
-        if MediaPlayerTopics.TURN_OFF in self._topics:
-            topics["turn_off_topic"] = self._topics[MediaPlayerTopics.TURN_OFF]
-        if MediaPlayerTopics.PLAY_MEDIA in self._topics:
-            topics["play_media_topic"] = self._topics[MediaPlayerTopics.PLAY_MEDIA]
-        if MediaPlayerTopics.BROWSE_MEDIA in self._topics:
-            topics["browse_media_topic"] = self._topics[MediaPlayerTopics.BROWSE_MEDIA]
+        command_topics = [
+            (MediaPlayerTopics.PLAY, "play_topic"),
+            (MediaPlayerTopics.PAUSE, "pause_topic"),
+            (MediaPlayerTopics.STOP, "stop_topic"),
+            (MediaPlayerTopics.NEXT_TRACK, "next_track_topic"),
+            (MediaPlayerTopics.PREVIOUS_TRACK, "previous_track_topic"),
+            (MediaPlayerTopics.VOLUME_SET, "volume_set_topic"),
+            (MediaPlayerTopics.SEEK, "seek_topic"),
+            (MediaPlayerTopics.VOLUME_MUTE, "volume_mute_topic"),
+            (MediaPlayerTopics.SHUFFLE_SET, "shuffle_set_topic"),
+            (MediaPlayerTopics.REPEAT_SET, "repeat_set_topic"),
+            (MediaPlayerTopics.SELECT_SOURCE, "select_source_topic"),
+            (MediaPlayerTopics.SELECT_SOUND_MODE, "select_sound_mode_topic"),
+            (MediaPlayerTopics.TURN_ON, "turn_on_topic"),
+            (MediaPlayerTopics.TURN_OFF, "turn_off_topic"),
+            (MediaPlayerTopics.PLAY_MEDIA, "play_media_topic"),
+            (MediaPlayerTopics.BROWSE_MEDIA, "browse_media_topic"),
+        ]
+        command_topics_added = sum(int(add_topic(topic_key, config_key, "command")) for topic_key, config_key in command_topics)
+        logger.debug(f"Added {command_topics_added} command topics to config")
 
-        return config | topics
+        final_config = config | topics
+        logger.debug(
+            f"Generated complete config for MediaPlayer '{self._entity.name}': "
+            f"{len(final_config)} total keys ({len(config)} base + {len(topics)} topics)"
+        )
+        logger.debug(f"Config topic keys: {list(topics.keys())}")
+        return final_config

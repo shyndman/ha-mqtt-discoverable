@@ -491,7 +491,7 @@ class DeviceInfo(BaseModel):
     """Firmware version of the device"""
     hw_version: Optional[str] = None
     """Hardware version of the device"""
-    identifiers: Optional[list[str] | str] = None
+    identifiers: Optional[list[str] | list[tuple[str, str]] | str] = None
     """A list of IDs that uniquely identify the device. For example a serial number."""
     connections: Optional[list[tuple]] = None
     """A list of connections of the device to the outside world as a list of tuples\
@@ -740,7 +740,7 @@ wrote_configuration: {self.wrote_configuration}
         host = cast(str, self._settings.mqtt.host)
         port = self._settings.mqtt.port or 1883
         logger.debug(f"Connecting MQTT client to broker at {host}:{port}")
-        
+
         result = self.mqtt_client.connect(host, port)
         # Check if we have established a connection
         if result != mqtt.MQTT_ERR_SUCCESS:

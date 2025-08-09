@@ -37,6 +37,7 @@ class MediaPlayerTopics:
     POSITION = "position"
     VOLUME = "volume"
     ALBUMART = "albumart"
+    MEDIA_IMAGE_REMOTELY_ACCESSIBLE = "media_image_remotely_accessible"
     AVAILABILITY = "availability"
 
 
@@ -83,106 +84,22 @@ class MediaPlayerCallbacks(TypedDict, total=False):
 
 
 class MediaPlayerInfo(EntityInfo):
-    """Enhanced Media Player with property-based state management"""
+    """Media Player configuration for Home Assistant MQTT discovery"""
 
     component: str = "media_player"
 
-    # === State Properties (represent actual media player state) ===
+    # === Configuration Properties ===
 
-    # Basic state
-    state: str | None = None
-    """Current state: playing, paused, stopped, idle, off"""
-
-    # Media information
-    media_title: str | None = None
-    """Title of current playing media"""
-
-    media_artist: str | None = None
-    """Artist of current playing media, music track only"""
-
-    media_album_name: str | None = None
-    """Album name of current playing media, music track only"""
-
-    media_album_artist: str | None = None
-    """Album artist of current playing media, music track only"""
-
-    media_duration: int | None = None
-    """Duration of current playing media in seconds"""
-
-    media_position: int | None = None
-    """Position of current playing media in seconds"""
-
-    media_content_id: str | None = None
-    """Content ID of current playing media"""
-
-    media_content_type: str | None = None
-    """Content type: music, video, podcast, etc."""
-
-    media_track: int | None = None
-    """Track number of current playing media, music track only"""
-
-    media_episode: str | None = None
-    """Episode of current playing media, TV show only"""
-
-    media_season: str | None = None
-    """Season of current playing media, TV show only"""
-
-    media_series_title: str | None = None
-    """Title of series of current playing media, TV show only"""
-
-    media_channel: str | None = None
-    """Channel currently playing"""
-
-    media_playlist: str | None = None
-    """Title of Playlist currently playing"""
-
-    # Audio properties
-    volume_level: float | None = None
-    """Volume level in range 0.0-1.0"""
-
-    is_volume_muted: bool | None = None
-    """True if volume is currently muted"""
-
+    # Volume configuration
     volume_step: float | None = 0.1
     """Volume step for volume_up/volume_down commands"""
 
-    # Playback properties
-    shuffle: bool | None = None
-    """True if shuffle is enabled"""
-
-    repeat: str | None = None
-    """Current repeat mode: off, all, one"""
-
-    # Source/input properties
-    source: str | None = None
-    """Currently selected input source"""
-
+    # Available options (for configuration/discovery)
     source_list: list[str] | None = None
     """List of available input sources"""
 
-    sound_mode: str | None = None
-    """Current sound mode"""
-
     sound_mode_list: list[str] | None = None
     """List of available sound modes"""
-
-    # Media image
-    media_image_url: str | None = None
-    """Image URL of current playing media"""
-
-    media_image_remotely_accessible: bool | None = False
-    """True if media_image_url is accessible outside local network"""
-
-    # App information
-    app_id: str | None = None
-    """ID of current running app"""
-
-    app_name: str | None = None
-    """Name of current running app"""
-
-    # Group properties (for multi-room audio)
-    group_members: list[str] | None = None
-    """List of player entities currently grouped together"""
 
     # Device classification
     device_class: str | None = None
@@ -286,7 +203,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         logger.debug(f"Generated {command_topics_generated} command topics for callbacks")
 
         # Generate state topics for properties that might be used
-        state_topics_generated = 9  # We always generate 9 state topics
+        state_topics_generated = 10  # We always generate 10 state topics
         self._topics[MediaPlayerTopics.STATE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.STATE}"
         self._topics[MediaPlayerTopics.TITLE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TITLE}"
         self._topics[MediaPlayerTopics.ARTIST] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ARTIST}"
@@ -295,6 +212,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         self._topics[MediaPlayerTopics.POSITION] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.POSITION}"
         self._topics[MediaPlayerTopics.VOLUME] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME}"
         self._topics[MediaPlayerTopics.ALBUMART] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUMART}"
+        self._topics[MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE}"
         self._topics[MediaPlayerTopics.AVAILABILITY] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.AVAILABILITY}"
 
         logger.debug(f"Generated {state_topics_generated} state topics (always included)")
@@ -311,25 +229,21 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         if state not in valid_states:
             raise ValueError(f"Invalid state '{state}'. Must be one of: {valid_states}")
 
-        self._entity.state = state
         logger.info(f"Setting {self._entity.name} state to {state}")
         self._state_helper(state, topic=self._topics["state"])
 
     def set_title(self, title: str) -> None:
         """Update media title"""
-        self._entity.media_title = title
         logger.info(f"Setting {self._entity.name} title to {title}")
         self._state_helper(title, topic=self._topics["title"])
 
     def set_artist(self, artist: str) -> None:
         """Update media artist"""
-        self._entity.media_artist = artist
         logger.info(f"Setting {self._entity.name} artist to {artist}")
         self._state_helper(artist, topic=self._topics["artist"])
 
     def set_album(self, album: str) -> None:
         """Update media album"""
-        self._entity.media_album_name = album
         logger.info(f"Setting {self._entity.name} album to {album}")
         self._state_helper(album, topic=self._topics["album"])
 
@@ -338,7 +252,6 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         if not 0.0 <= volume <= 1.0:
             raise ValueError(f"Volume must be between 0.0 and 1.0, got {volume}")
 
-        self._entity.volume_level = volume
         logger.info(f"Setting {self._entity.name} volume to {volume}")
         self._state_helper(str(volume), topic=self._topics["volume"])
 
@@ -346,10 +259,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         """Update playback position"""
         if position < 0:
             raise ValueError("Position must be non-negative")
-        if self._entity.media_duration and position > self._entity.media_duration:
-            raise ValueError(f"Position {position} exceeds duration {self._entity.media_duration}")
 
-        self._entity.media_position = position
         logger.info(f"Setting {self._entity.name} position to {position}")
         self._state_helper(str(position), topic=self._topics["position"])
 
@@ -358,19 +268,22 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         if duration < 0:
             raise ValueError("Duration must be non-negative")
 
-        self._entity.media_duration = duration
         logger.info(f"Setting {self._entity.name} duration to {duration}")
         self._state_helper(str(duration), topic=self._topics["duration"])
 
     def set_albumart_url(self, url: str) -> None:
         """Update album art URL"""
-        self._entity.media_image_url = url
         logger.info(f"Setting {self._entity.name} album art URL to {url}")
         self._state_helper(url, topic=self._topics["albumart"])
 
+    def set_media_image_remotely_accessible(self, accessible: bool) -> None:
+        """Update whether media image URL is accessible outside the home network"""
+        message = "true" if accessible else "false"
+        logger.info(f"Setting {self._entity.name} media image remotely accessible to {message}")
+        self._state_helper(message, topic=self._topics["media_image_remotely_accessible"])
+
     def set_muted(self, muted: bool) -> None:
         """Update mute state"""
-        self._entity.is_volume_muted = muted
         logger.info(f"Setting {self._entity.name} muted to {muted}")
         # Note: mute state typically published to volume topic or separate mute topic
         # For now, we'll use a simple approach
@@ -380,7 +293,6 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         if MediaPlayerTopics.SHUFFLE_SET not in self._topics:
             raise RuntimeError("Player does not support shuffle control")
 
-        self._entity.shuffle = shuffle
         logger.info(f"Setting {self._entity.name} shuffle to {shuffle}")
 
     def set_repeat(self, repeat: str) -> None:
@@ -392,7 +304,6 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         if repeat not in valid_modes:
             raise ValueError(f"Invalid repeat mode '{repeat}'. Must be one of: {valid_modes}")
 
-        self._entity.repeat = repeat
         logger.info(f"Setting {self._entity.name} repeat to {repeat}")
 
     def set_availability(self, availability: bool) -> None:
@@ -403,7 +314,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
     # === Bulk Update Methods ===
 
-    def update_media_info(self, title, duration, artist=None, album=None, albumart_url=None):
+    def update_media_info(self, title, duration, artist=None, album=None, albumart_url=None, media_image_remotely_accessible=None):
         """Update media properties, clearing all fields first then setting provided values"""
         # Prepare final values - use empty strings/zero for clearing, or provided values
         final_title = title
@@ -411,6 +322,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         final_artist = artist if artist is not None else ""
         final_album = album if album is not None else ""
         final_albumart_url = albumart_url if albumart_url is not None else ""
+        final_media_image_remotely_accessible = media_image_remotely_accessible if media_image_remotely_accessible is not None else False
 
         # Set all values once
         self.set_title(final_title)
@@ -418,6 +330,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         self.set_artist(final_artist)
         self.set_album(final_album)
         self.set_albumart_url(final_albumart_url)
+        self.set_media_image_remotely_accessible(final_media_image_remotely_accessible)
 
     def update_playback_state(self, state=None, volume=None, muted=None, shuffle=None, repeat=None):
         """Update multiple playback properties at once"""
@@ -518,6 +431,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             (MediaPlayerTopics.POSITION, "media_position_topic"),
             (MediaPlayerTopics.VOLUME, "volume_level_topic"),
             (MediaPlayerTopics.ALBUMART, "media_image_url_topic"),
+            (MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE, "media_image_remotely_accessible_topic"),
         ]
         metadata_topics_added = sum(int(add_topic(topic_key, config_key, "metadata")) for topic_key, config_key in metadata_topics)
         logger.debug(f"Added {metadata_topics_added} metadata topics to config")

@@ -737,14 +737,23 @@ wrote_configuration: {self.wrote_configuration}
     def _connect_client(self) -> None:
         """Connect the client to the MQTT broker, start its onw internal loop in
         a separate thread"""
-        result = self.mqtt_client.connect(cast(str, self._settings.mqtt.host), self._settings.mqtt.port or 1883)
+        host = cast(str, self._settings.mqtt.host)
+        port = self._settings.mqtt.port or 1883
+        logger.debug(f"Connecting MQTT client to broker at {host}:{port}")
+        
+        result = self.mqtt_client.connect(host, port)
         # Check if we have established a connection
         if result != mqtt.MQTT_ERR_SUCCESS:
+            logger.error(f"Failed to connect to MQTT broker at {host}:{port}, error code: {result}")
             raise RuntimeError("Error while connecting to MQTT broker")
+
+        logger.debug(f"Successfully connected to MQTT broker at {host}:{port}")
 
         # Start the internal network loop of the MQTT library to handle incoming
         # messages in a separate thread
+        logger.debug("Starting MQTT client loop in separate thread")
         self.mqtt_client.loop_start()
+        logger.debug("MQTT client loop started successfully")
 
     def _state_helper(
         self, state: str | float | int | None, topic: str | None = None, last_reset: str | None = None, retain=True

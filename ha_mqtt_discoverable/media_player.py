@@ -205,31 +205,42 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             Topics must be generated before calling super().__init__() because the
             _on_client_connected callback needs access to self._topics for subscription.
         """
+        logger.debug(f"Initializing MediaPlayer '{settings.entity.name}' with callbacks: {list(callbacks.keys())}")
         self._callbacks = callbacks
         self._topics = {}
 
         # Generate topics based on provided callbacks before calling super()
         # This is required because _on_client_connected needs self._topics
         self._generate_topics(settings)
+        logger.debug(f"Generated {len(self._topics)} topics for MediaPlayer '{settings.entity.name}'")
 
         super().__init__(settings, self._on_client_connected)
 
         # Set up message callback for all subscribed topics
         self.mqtt_client.on_message = self._command_callback_handler
+        logger.debug(f"MediaPlayer '{settings.entity.name}' initialization complete")
+
+        self._connect_client()
 
     def _on_client_connected(self, client, *args):
         """Subscribe to all command topics based on provided callbacks"""
+        logger.debug(f"MQTT client connected for MediaPlayer '{self._entity.name}', subscribing to command topics")
+        subscribed_count = 0
         for topic_key, topic_url in self._topics.items():
             # Only subscribe to command topics (not state topics)
             if topic_key in COMMAND_TOPICS:
-                logger.info(f"Subscribing to command topic: {topic_url}")
+                logger.debug(f"Subscribing to command topic '{topic_key}': {topic_url}")
                 result, _ = client.subscribe(topic_url, qos=1)
                 if result != 0:  # mqtt.MQTT_ERR_SUCCESS
                     logger.error(f"Error subscribing to MQTT command topic: {topic_url}")
+                else:
+                    subscribed_count += 1
+        logger.debug(f"Successfully subscribed to {subscribed_count} command topics for MediaPlayer '{self._entity.name}'")
 
     def _generate_topics(self, settings):
         """Generate topics based on supported features and properties"""
         entity = settings.entity
+        logger.debug(f"Generating topics for MediaPlayer '{entity.name}' with {len(self._callbacks)} callbacks")
 
         # Import here to avoid circular dependency
         from ha_mqtt_discoverable.utils import clean_string

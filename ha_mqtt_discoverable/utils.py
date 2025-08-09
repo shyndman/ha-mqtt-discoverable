@@ -21,15 +21,15 @@ import yaml
 from ha_mqtt_discoverable import CONFIGURATION_KEY_NAMES
 
 
-def clean_string(raw: str) -> str:
+def clean_string(raw: str, space_char: str = "-") -> str:
     """
     MQTT Discovery protocol only allows [a-zA-Z0-9_-]
     """
-    result = re.sub(r"[^A-Za-z0-9_-]", "-", raw)
+    result = re.sub(r"[^A-Za-z0-9_-]", space_char, raw)
     return result.lower()
 
 
-def read_yaml_file(path: str = None) -> dict:
+def read_yaml_file(path: str) -> dict:
     """
     Return the data structure contained in a yaml file
 

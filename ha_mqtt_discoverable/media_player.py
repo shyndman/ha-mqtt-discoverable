@@ -1,10 +1,44 @@
 import logging
 from collections.abc import Callable
+from enum import Enum
 from typing import TypedDict
+
+from paho.mqtt.client import Client, MQTTMessage
+from pydantic import BaseModel
 
 from ha_mqtt_discoverable import Discoverable, EntityInfo
 
 logger = logging.getLogger(__name__)
+
+
+# === Pydantic Payload Models ===
+
+class RepeatMode(str, Enum):
+    """Valid repeat modes for media players"""
+    OFF = "off"
+    ALL = "all"
+    ONE = "one"
+
+
+class PlayMediaPayload(BaseModel):
+    """Payload structure for play_media commands"""
+    media_type: str
+    media_id: str
+    enqueue: str | None = None  # "add", "next", "play", "replace"
+    announce: bool | None = None
+
+
+# === Type Aliases for Callbacks ===
+
+# Simple command callbacks (no payload needed)
+type CommandCallback = Callable[[Client, object, MQTTMessage], None]
+
+# Payload-based callbacks (parsed payload first)
+type FloatCallback = Callable[[float, Client, object, MQTTMessage], None]
+type BoolCallback = Callable[[bool, Client, object, MQTTMessage], None] 
+type SelectionCallback = Callable[[str, Client, object, MQTTMessage], None]
+type RepeatCallback = Callable[[RepeatMode, Client, object, MQTTMessage], None]
+type PlayMediaCallback = Callable[[PlayMediaPayload, Client, object, MQTTMessage], None]
 
 
 # Topic name constants
@@ -61,26 +95,41 @@ COMMAND_TOPICS = {
     MediaPlayerTopics.BROWSE_MEDIA,
 }
 
+# Simple commands that don't need payload parsing
+_SIMPLE_COMMANDS = {
+    MediaPlayerTopics.PLAY,
+    MediaPlayerTopics.PAUSE,
+    MediaPlayerTopics.STOP,
+    MediaPlayerTopics.NEXT_TRACK,
+    MediaPlayerTopics.PREVIOUS_TRACK,
+    MediaPlayerTopics.TURN_ON,
+    MediaPlayerTopics.TURN_OFF,
+    MediaPlayerTopics.BROWSE_MEDIA,
+}
+
 
 class MediaPlayerCallbacks(TypedDict, total=False):
     """Type-safe callback definitions for media player commands"""
 
-    play: Callable[..., None]
-    pause: Callable[..., None]
-    stop: Callable[..., None]
-    next_track: Callable[..., None]
-    previous_track: Callable[..., None]
-    volume_set: Callable[..., None]
-    seek: Callable[..., None]
-    volume_mute: Callable[..., None]
-    shuffle_set: Callable[..., None]
-    repeat_set: Callable[..., None]
-    select_source: Callable[..., None]
-    select_sound_mode: Callable[..., None]
-    turn_on: Callable[..., None]
-    turn_off: Callable[..., None]
-    play_media: Callable[..., None]
-    browse_media: Callable[..., None]
+    # Simple command callbacks (no payload needed)
+    play: CommandCallback
+    pause: CommandCallback
+    stop: CommandCallback
+    next_track: CommandCallback
+    previous_track: CommandCallback
+    turn_on: CommandCallback
+    turn_off: CommandCallback
+    browse_media: CommandCallback
+
+    # Payload-based callbacks (parsed payload first)
+    volume_set: FloatCallback
+    seek: FloatCallback
+    shuffle_set: BoolCallback
+    volume_mute: BoolCallback
+    repeat_set: RepeatCallback
+    select_source: SelectionCallback
+    select_sound_mode: SelectionCallback
+    play_media: PlayMediaCallback
 
 
 class MediaPlayerInfo(EntityInfo):
@@ -355,45 +404,80 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         try:
             payload = message.payload.decode()
             logger.debug(f"Decoded payload: {payload}")
-        except UnicodeDecodeError as e:
-            logger.error(f"Failed to decode payload for topic {topic}: {e}")
+        except UnicodeDecodeError:
+            logger.exception(f"Failed to decode payload for topic {topic}")
             return
 
         # Extract command from topic (last part after final slash)
         command_name = topic.split("/")[-1]
         logger.debug(f"Extracted command name: {command_name}")
 
-        # Route directly to callback using command name
-        if command_name in self._callbacks:
-            try:
+        # Exit early if no callback registered
+        if command_name not in self._callbacks:
+            logger.warning(f"No callback registered for command: {command_name}")
+            return
+
+        try:
+            if command_name in _SIMPLE_COMMANDS:
+                logger.debug(f"Invoking simple command callback for: {command_name}")
+                self._callbacks[command_name](client, user_data, message)
+            else:
+                # Payload-based commands need parsing
                 parsed_payload = self._parse_command_payload(command_name, payload)
                 logger.debug(f"Parsed payload for {command_name}: {parsed_payload}")
-                logger.debug(f"Invoking callback for command: {command_name}")
-                self._callbacks[command_name](client, user_data, message)
-                logger.debug(f"Successfully executed callback for {command_name}")
-            except Exception as e:
-                logger.error(f"Error executing callback for {command_name}: {e}", exc_info=True)
-        else:
-            logger.warning(f"No callback registered for command: {command_name}")
+                logger.debug(f"Invoking payload-based callback for command: {command_name}")
+                self._callbacks[command_name](parsed_payload, client, user_data, message)
+            
+            logger.debug(f"Successfully executed callback for {command_name}")
+        except Exception:
+            logger.exception(f"Error executing callback for {command_name}")
 
     def _parse_command_payload(self, command: str, payload: str):
         """Parse command payload based on command type"""
+        import json
+        
         logger.debug(f"Parsing payload for command '{command}': {payload}")
-        if command in [MediaPlayerTopics.VOLUME_SET, MediaPlayerTopics.SEEK]:
-            try:
-                parsed_value = float(payload)
-                logger.debug(f"Parsed numeric payload for {command}: {parsed_value}")
+        
+        match command:
+            case MediaPlayerTopics.VOLUME_SET | MediaPlayerTopics.SEEK:
+                try:
+                    parsed_value = float(payload)
+                    logger.debug(f"Parsed float payload for {command}: {parsed_value}")
+                    return parsed_value
+                except ValueError:
+                    logger.exception(f"Invalid float payload for {command}: {payload}")
+                    return None
+            
+            case MediaPlayerTopics.SHUFFLE_SET | MediaPlayerTopics.VOLUME_MUTE:
+                parsed_value = payload.upper() == "ON"
+                logger.debug(f"Parsed boolean payload for {command}: {parsed_value} (from '{payload}')")
                 return parsed_value
-            except ValueError:
-                logger.error(f"Invalid numeric payload for {command}: {payload}")
-                return None
-        elif command in [MediaPlayerTopics.SHUFFLE_SET, MediaPlayerTopics.VOLUME_MUTE]:
-            parsed_value = payload.upper() == "ON"
-            logger.debug(f"Parsed boolean payload for {command}: {parsed_value} (from '{payload}')")
-            return parsed_value
-        else:
-            logger.debug(f"Using raw payload for {command}: {payload}")
-            return payload
+            
+            case MediaPlayerTopics.REPEAT_SET:
+                try:
+                    repeat_mode = RepeatMode(payload)
+                    logger.debug(f"Parsed repeat mode for {command}: {repeat_mode}")
+                    return repeat_mode
+                except ValueError:
+                    logger.exception(f"Invalid repeat mode for {command}: {payload}. Valid modes: {[mode.value for mode in RepeatMode]}")
+                    return None
+            
+            case MediaPlayerTopics.PLAY_MEDIA:
+                try:
+                    play_media_payload = PlayMediaPayload.model_validate_json(payload)
+                    logger.debug(f"Parsed play_media JSON for {command}: {play_media_payload}")
+                    return play_media_payload
+                except json.JSONDecodeError:
+                    logger.exception(f"Invalid JSON payload for {command}")
+                    return None
+                except Exception:
+                    logger.exception(f"Invalid play_media payload for {command}")
+                    return None
+            
+            case _:
+                # String selection commands (select_source, select_sound_mode)
+                logger.debug(f"Using string payload for {command}: {payload}")
+                return payload
 
     def generate_config(self) -> dict[str, str]:
         """Generate discovery config based on available topics"""

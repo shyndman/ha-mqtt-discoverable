@@ -34,8 +34,8 @@ clean: clean-synology-fuckery ## Cleans out stale wheels, generated tar files, .
 format: ## Runs 'ruff' on all our python source files
 	poetry run ruff check ha_mqtt_discoverable tests
 
-test: ## Run tests with 'nosetests'
-	nosestests -v
+test: ## Run tests with 'pytest'
+	poetry run pytest -q
 
 install_hooks: ## Install the git hooks
 	poetry run pre-commit install

@@ -15,6 +15,7 @@
 #
 
 import re
+from typing import Any
 
 import yaml
 
@@ -41,7 +42,7 @@ def clean_string(
     return result.lower()
 
 
-def read_yaml_file(path: str) -> dict:
+def read_yaml_file(path: str) -> dict[str, Any]:
     """
     Return the data structure contained in a yaml file
 

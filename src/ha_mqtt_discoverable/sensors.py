@@ -128,7 +128,7 @@ class LightInfo(EntityInfo):
     supported modes. Required if color_mode is set"""
     effect: bool | None = False
     """Flag that defines if the light supports effects"""
-    effect_list: str | list | None = None
+    effect_list: str | list[str] | None = None
     """List of supported effects. Required if effect is set"""
     retain: bool | None = True
     """If the published message should have the retain flag on or not"""
@@ -300,7 +300,7 @@ class SelectInfo(EntityInfo):
     """If the published message should have the retain flag on or not"""
     state_topic: str | None = None
     """The MQTT topic subscribed to receive state updates."""
-    options: list | None = None
+    options: list[str] | None = None
     """List of options that can be selected. An empty list or a list with a single item is allowed."""
 
 
@@ -676,7 +676,7 @@ class Select(Subscriber[SelectInfo]):
     https://www.home-assistant.io/integrations/select.mqtt/
     """
 
-    def set_options(self, opt: list) -> None:
+    def set_options(self, opt: list[str]) -> None:
         """
         Update the selectable options.
 

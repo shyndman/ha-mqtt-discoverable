@@ -18,11 +18,11 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, NotRequired
 
 from pydantic import Field, HttpUrl, TypeAdapter, ValidationError
 from pydantic.types import conint
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 from ha_mqtt_discoverable import (
     DeviceInfo,
@@ -38,7 +38,7 @@ class BinarySensorInfo(EntityInfo):
     """Binary sensor specific information"""
 
     component: str = "binary_sensor"
-    off_delay: Optional[int] = None
+    off_delay: int | None = None
     """For sensors that only send on state updates (like PIRs), this variable
     sets a delay in seconds after which the sensor's state will be updated back
     to off."""
@@ -52,19 +52,19 @@ class SensorInfo(EntityInfo):
     """Sensor specific information"""
 
     component: str = "sensor"
-    unit_of_measurement: Optional[str] = None
+    unit_of_measurement: str | None = None
     """Defines the units of measurement of the sensor, if any."""
-    state_class: Optional[str] = None
+    state_class: str | None = None
     """Defines the type of state.
     If not None, the sensor is assumed to be numerical
     and will be displayed as a line-chart
     in the frontend instead of as discrete values."""
-    value_template: Optional[str] = None
+    value_template: str | None = None
     """
     Defines a template to extract the value.
     If the template throws an error,
     the current state will be used instead."""
-    last_reset_value_template: Optional[str] = None
+    last_reset_value_template: str | None = None
     """
     Defines a template to extract the last_reset.
     When last_reset_value_template is set, the state_class option must be total.
@@ -80,7 +80,7 @@ class SwitchInfo(EntityInfo):
     """Switch specific information"""
 
     component: str = "switch"
-    optimistic: Optional[bool] = None
+    optimistic: bool | None = None
     """Flag that defines if switch works in optimistic mode.
     Default: true if no state_topic defined, else false."""
     payload_off: str = "OFF"
@@ -91,9 +91,9 @@ class SwitchInfo(EntityInfo):
     """The payload that represents on state. If specified, will be used for both
     comparing to the value in the state_topic (see value_template and state_on
     for details) and sending as on command to the command_topic."""
-    retain: Optional[bool] = None
+    retain: bool | None = None
     """If the published message should have the retain flag on or not"""
-    state_topic: Optional[str] = None
+    state_topic: str | None = None
     """The MQTT topic subscribed to receive state updates."""
 
 
@@ -102,9 +102,11 @@ class LightInfo(EntityInfo):
 
     component: str = "light"
 
-    state_schema: str = Field(default="json", alias="schema")  # 'schema' is a reserved word by pydantic
+    state_schema: str = Field(
+        default="json", alias="schema"
+    )  # 'schema' is a reserved word by pydantic
     """Sets the schema of the state topic, ie the 'schema' field in the configuration"""
-    optimistic: Optional[bool] = None
+    optimistic: bool | None = None
     """Flag that defines if light works in optimistic mode.
     Default: true if no state_topic defined, else false."""
     payload_off: str = "OFF"
@@ -115,22 +117,22 @@ class LightInfo(EntityInfo):
     """The payload that represents on state. If specified, will be used for both
     comparing to the value in the state_topic (see value_template and state_on
     for details) and sending as on command to the command_topic."""
-    brightness: Optional[bool] = False
+    brightness: bool | None = False
     """Flag that defines if the light supports setting the brightness
     """
-    color_mode: Optional[bool] = None
+    color_mode: bool | None = None
     """Flag that defines if the light supports color mode"""
-    supported_color_modes: Optional[list[str]] = None
+    supported_color_modes: list[str] | None = None
     """List of supported color modes. See
     https://www.home-assistant.io/integrations/light.mqtt/#supported_color_modes for current list of
     supported modes. Required if color_mode is set"""
-    effect: Optional[bool] = False
+    effect: bool | None = False
     """Flag that defines if the light supports effects"""
-    effect_list: Optional[str | list] = None
+    effect_list: str | list | None = None
     """List of supported effects. Required if effect is set"""
-    retain: Optional[bool] = True
+    retain: bool | None = True
     """If the published message should have the retain flag on or not"""
-    state_topic: Optional[str] = None
+    state_topic: str | None = None
     """The MQTT topic subscribed to receive state updates."""
 
 
@@ -139,7 +141,7 @@ class CoverInfo(EntityInfo):
 
     component: str = "cover"
 
-    optimistic: Optional[bool] = None
+    optimistic: bool | None = None
     """Flag that defines if light works in optimistic mode.
     Default: true if no state_topic defined, else false."""
     payload_close: str = "CLOSE"
@@ -162,9 +164,9 @@ class CoverInfo(EntityInfo):
     """Payload that represents closing state"""
     state_stopped: str = "stopped"
     """Payload that represents stopped state"""
-    state_topic: Optional[str] = None
+    state_topic: str | None = None
     """The MQTT topic subscribed to receive state updates."""
-    retain: Optional[bool] = True
+    retain: bool | None = True
     """If the published message should have the retain flag on or not"""
 
 
@@ -175,7 +177,7 @@ class ButtonInfo(EntityInfo):
 
     payload_press: str = "PRESS"
     """The payload to send to trigger the button."""
-    retain: Optional[bool] = None
+    retain: bool | None = None
     """If the published message should have the retain flag on or not"""
 
 
@@ -188,12 +190,12 @@ class TextInfo(EntityInfo):
     """The maximum size of a text being set or received (maximum is 255)."""
     min: int = 0
     """The minimum size of a text being set or received."""
-    mode: Optional[str] = "text"
+    mode: str | None = "text"
     """The mode off the text entity. Must be either text or password."""
-    pattern: Optional[str] = None
+    pattern: str | None = None
     """A valid regular expression the text being set or received must match with."""
 
-    retain: Optional[bool] = None
+    retain: bool | None = None
     """If the published message should have the retain flag on or not"""
 
 
@@ -206,22 +208,22 @@ class NumberInfo(EntityInfo):
     """The maximum value of the number (defaults to 100)"""
     min: float | int = 1
     """The maximum value of the number (defaults to 1)"""
-    mode: Optional[str] = None
+    mode: str | None = None
     """Control how the number should be displayed in the UI. Can be set to box
     or slider to force a display mode."""
-    optimistic: Optional[bool] = None
+    optimistic: bool | None = None
     """Flag that defines if switch works in optimistic mode.
     Default: true if no state_topic defined, else false."""
-    payload_reset: Optional[str] = None
+    payload_reset: str | None = None
     """A special payload that resets the state to None when received on the
     state_topic."""
-    retain: Optional[bool] = None
+    retain: bool | None = None
     """If the published message should have the retain flag on or not"""
-    state_topic: Optional[str] = None
+    state_topic: str | None = None
     """The MQTT topic subscribed to receive state updates."""
-    step: Optional[float] = None
+    step: float | None = None
     """Step value. Smallest acceptable value is 0.001. Defaults to 1.0."""
-    unit_of_measurement: Optional[str] = None
+    unit_of_measurement: str | None = None
     """Defines the unit of measurement of the sensor, if any. The
     unit_of_measurement can be null."""
 
@@ -233,7 +235,7 @@ class DeviceTriggerInfo(EntityInfo):
     automation_type: str = "trigger"
     """The type of automation, must be ‘trigger’."""
 
-    payload: Optional[str] = None
+    payload: str | None = None
     """Optional payload to match the payload being sent over the topic."""
     type: str
     """The type of the trigger"""
@@ -250,18 +252,18 @@ class CameraInfo(EntityInfo):
 
     component: str = "camera"
     """The component type is 'camera' for this entity."""
-    availability_topic: Optional[str] = None
+    availability_topic: str | None = None
     """The MQTT topic subscribed to publish the camera availability."""
-    payload_available: Optional[str] = "online"
+    payload_available: str | None = "online"
     """Payload to publish to indicate the camera is online."""
-    payload_not_available: Optional[str] = "offline"
+    payload_not_available: str | None = "offline"
     """Payload to publish to indicate the camera is offline."""
-    topic: Optional[str] = None
+    topic: str | None = None
     """
     The MQTT topic to subscribe to receive an image URL. A url_template option can extract the URL from the message.
     The content_type will be derived from the image when downloaded.
     """
-    retain: Optional[bool] = None
+    retain: bool | None = None
     """If the published message should have the retain flag on or not."""
 
 
@@ -272,18 +274,18 @@ class ImageInfo(EntityInfo):
 
     component: str = "image"
     """The component type is 'image' for this entity."""
-    availability_topic: Optional[str] = None
+    availability_topic: str | None = None
     """The MQTT topic subscribed to publish the image availability."""
-    payload_available: Optional[str] = "online"
+    payload_available: str | None = "online"
     """Payload to publish to indicate the image is online."""
-    payload_not_available: Optional[str] = "offline"
+    payload_not_available: str | None = "offline"
     """Payload to publish to indicate the image is offline."""
-    url_topic: Optional[str] = None
+    url_topic: str | None = None
     """
     The MQTT topic to subscribe to receive an image URL. A url_template option can extract the URL from the message.
     The content_type will be derived from the image when downloaded.
     """
-    retain: Optional[bool] = None
+    retain: bool | None = None
     """If the published message should have the retain flag on or not."""
 
 
@@ -291,14 +293,14 @@ class SelectInfo(EntityInfo):
     """Switch specific information"""
 
     component: str = "select"
-    optimistic: Optional[bool] = None
+    optimistic: bool | None = None
     """Flag that defines if switch works in optimistic mode.
     Default: true if no state_topic defined, else false."""
-    retain: Optional[bool] = None
+    retain: bool | None = None
     """If the published message should have the retain flag on or not"""
-    state_topic: Optional[str] = None
+    state_topic: str | None = None
     """The MQTT topic subscribed to receive state updates."""
-    options: Optional[list] = None
+    options: list | None = None
     """List of options that can be selected. An empty list or a list with a single item is allowed."""
 
 
@@ -306,27 +308,27 @@ class UpdateInfo(EntityInfo):
     """Update specific information"""
 
     component: str = "update"
-    device_class: Optional[str] = None
+    device_class: str | None = None
     """Sets the class of the device, changing the device state and icon that is
     displayed on the frontend. For Update entities, use "firmware" for firmware updates
     or None (default) for generic software updates."""
     display_precision: int = 0
     """The number of decimal places for version display precision."""
-    entity_picture: Optional[str] = None
+    entity_picture: str | None = None
     """Picture URL for the entity."""
-    latest_version_template: Optional[str] = None
+    latest_version_template: str | None = None
     """Defines a template to extract the latest version value."""
-    latest_version_topic: Optional[str] = None
+    latest_version_topic: str | None = None
     """The MQTT topic subscribed to receive the latest version."""
     payload_install: str = "INSTALL"
     """The payload to send to trigger the update installation."""
-    release_summary: Optional[str] = None
+    release_summary: str | None = None
     """Summary of the release."""
-    release_url: Optional[str] = None
+    release_url: str | None = None
     """URL to the release page."""
-    title: Optional[str] = None
+    title: str | None = None
     """Title of the update."""
-    value_template: Optional[str] = None
+    value_template: str | None = None
     """Defines a template to extract the installed version value."""
 
 
@@ -351,7 +353,9 @@ class BinarySensor(Discoverable[BinarySensorInfo]):
             state(bool): What state to set the sensor to
         """
         state_message = self._entity.payload_on if state else self._entity.payload_off
-        logger.info(f"Setting {self._entity.name} to {state_message} using {self.state_topic}")
+        logger.info(
+            f"Setting {self._entity.name} to {state_message} using {self.state_topic}"
+        )
         self._state_helper(state=state_message)
 
 
@@ -421,7 +425,9 @@ class Light(Subscriber[LightInfo]):
             brightness(int): Brightness value of [0,255]
         """
         if brightness < 0 or brightness > 255:
-            raise RuntimeError(f"Brightness for light {self._entity.name} is out of range")
+            raise RuntimeError(
+                f"Brightness for light {self._entity.name} is out of range"
+            )
 
         state_payload = {
             "brightness": brightness,
@@ -441,9 +447,13 @@ class Light(Subscriber[LightInfo]):
             color(Dict[str, Any]): Color to set, according to color_mode format
         """
         if not self._entity.color_mode:
-            raise RuntimeError(f"Light {self._entity.name} does not support setting color")
+            raise RuntimeError(
+                f"Light {self._entity.name} does not support setting color"
+            )
         if color_mode not in self._entity.supported_color_modes:
-            raise RuntimeError(f"Color is not in configured supported_color_modes {str(self._entity.supported_color_modes)}")
+            raise RuntimeError(
+                f"Color is not in configured supported_color_modes {str(self._entity.supported_color_modes)}"
+            )
         # We do not check if color schema conforms to color mode formatting, it is up to the caller
         state_payload = {
             "color_mode": color_mode,
@@ -462,7 +472,9 @@ class Light(Subscriber[LightInfo]):
         if not self._entity.effect:
             raise RuntimeError(f"Light {self._entity.name} does not support effects")
         if effect not in self._entity.effect_list:
-            raise RuntimeError(f"Effect is not within configured effect_list {str(self._entity.effect_list)}")
+            raise RuntimeError(
+                f"Effect is not within configured effect_list {str(self._entity.effect_list)}"
+            )
         state_payload = {
             "effect": effect,
             "state": self._entity.payload_on,
@@ -478,7 +490,9 @@ class Light(Subscriber[LightInfo]):
         """
         logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
         json_state = json.dumps(state)
-        self._state_helper(state=json_state, topic=self.state_topic, retain=self._entity.retain)
+        self._state_helper(
+            state=json_state, topic=self.state_topic, retain=self._entity.retain
+        )
 
 
 class Cover(Subscriber[CoverInfo]):
@@ -515,7 +529,9 @@ class Cover(Subscriber[CoverInfo]):
         """
         print("State: " + state)
         logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
-        self._state_helper(state=state, topic=self.state_topic, retain=self._entity.retain)
+        self._state_helper(
+            state=state, topic=self.state_topic, retain=self._entity.retain
+        )
 
 
 class Button(Subscriber[ButtonInfo]):
@@ -540,7 +556,7 @@ class DeviceTrigger(Discoverable[DeviceTriggerInfo]):
         }
         return config | topics
 
-    def trigger(self, payload: Optional[str] = None):
+    def trigger(self, payload: str | None = None):
         """
         Generate a device trigger event
 
@@ -565,7 +581,9 @@ class Text(Subscriber[TextInfo]):
         """
         if not self._entity.min <= len(text) <= self._entity.max:
             bound = f"[{self._entity.min}, {self._entity.max}]"
-            raise RuntimeError(f"Text is not within configured length boundaries {bound}")
+            raise RuntimeError(
+                f"Text is not within configured length boundaries {bound}"
+            )
 
         logger.info(f"Setting {self._entity.name} to {text} using {self.state_topic}")
         self._state_helper(str(text))
@@ -607,7 +625,9 @@ class Camera(Subscriber[CameraInfo]):
         if not image_topic:
             raise RuntimeError("Image topic cannot be empty")
 
-        logger.info(f"Publishing camera image topic {image_topic} to {self._entity.topic}")
+        logger.info(
+            f"Publishing camera image topic {image_topic} to {self._entity.topic}"
+        )
         self._state_helper(image_topic)
 
     def set_availability(self, available: bool) -> None:
@@ -617,9 +637,17 @@ class Camera(Subscriber[CameraInfo]):
         Args:
             available (bool): Whether the camera is available or not.
         """
-        payload = self._entity.payload_available if available else self._entity.payload_not_available
-        logger.info(f"Setting camera availability to {payload} using {self._entity.availability_topic}")
-        self.mqtt_client.publish(self._entity.availability_topic, payload, retain=self._entity.retain)
+        payload = (
+            self._entity.payload_available
+            if available
+            else self._entity.payload_not_available
+        )
+        logger.info(
+            f"Setting camera availability to {payload} using {self._entity.availability_topic}"
+        )
+        self.mqtt_client.publish(
+            self._entity.availability_topic, payload, retain=self._entity.retain
+        )
 
 
 class Image(Discoverable[ImageInfo]):
@@ -676,7 +704,9 @@ class UpdateStatePayload(TypedDict, total=False):
     release_url: NotRequired[HttpUrl]  # Strict URL validation
     entity_picture: NotRequired[HttpUrl]  # Strict URL validation
     in_progress: NotRequired[bool]
-    update_percentage: NotRequired[conint(ge=0, le=100)]  # Range validation  # type: ignore # Range validation
+    update_percentage: NotRequired[
+        conint(ge=0, le=100)
+    ]  # Range validation  # type: ignore # Range validation
 
 
 # Create TypeAdapter for validation
@@ -891,7 +921,9 @@ class Update(Subscriber[UpdateInfo]):
         # Validate and serialize using TypeAdapter
         try:
             validated_payload = update_state_validator.validate_python(filtered_state)
-            json_state = update_state_validator.dump_json(validated_payload).decode("utf-8")
+            json_state = update_state_validator.dump_json(validated_payload).decode(
+                "utf-8"
+            )
             logger.debug(f"Validated update state payload: {validated_payload}")
             self._state_helper(json_state)
         except ValidationError as e:
@@ -919,7 +951,9 @@ class Update(Subscriber[UpdateInfo]):
 
         # Add latest_version_template if specified
         if self._entity.latest_version_template is not None:
-            update_config["latest_version_template"] = self._entity.latest_version_template
+            update_config["latest_version_template"] = (
+                self._entity.latest_version_template
+            )
 
         # Add latest_version_topic if configured
         if hasattr(self, "_latest_version_topic"):

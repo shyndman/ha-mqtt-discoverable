@@ -26,7 +26,11 @@ from ha_mqtt_discoverable.sensors import Sensor, SensorInfo
 def make_sensor():
     def _make_sensor(suggested_display_precision: None | int = 2):
         mqtt_settings = Settings.MQTT(host="localhost")
-        sensor_info = SensorInfo(name="test", unit_of_measurement="kWh", suggested_display_precision=suggested_display_precision)
+        sensor_info = SensorInfo(
+            name="test",
+            unit_of_measurement="kWh",
+            suggested_display_precision=suggested_display_precision,
+        )
         settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
         return Sensor(settings)
 
@@ -47,7 +51,10 @@ def test_generate_config(sensor: Sensor):
 
     assert config is not None
     assert config["unit_of_measurement"] == sensor._entity.unit_of_measurement
-    assert config["suggested_display_precision"] == sensor._entity.suggested_display_precision
+    assert (
+        config["suggested_display_precision"]
+        == sensor._entity.suggested_display_precision
+    )
 
 
 def test_update_state(sensor: Sensor):

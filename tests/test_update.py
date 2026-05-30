@@ -33,7 +33,13 @@ def make_update():
         **kwargs,
     ):
         mqtt_settings = Settings.MQTT(host="localhost")
-        update_info = UpdateInfo(name=name, device=device, unique_id=unique_id, latest_version_topic=latest_version_topic, **kwargs)
+        update_info = UpdateInfo(
+            name=name,
+            device=device,
+            unique_id=unique_id,
+            latest_version_topic=latest_version_topic,
+            **kwargs,
+        )
         settings = Settings(mqtt=mqtt_settings, entity=update_info)
         # Define an empty command_callback
         return Update(settings, lambda *_: None)
@@ -49,7 +55,9 @@ def update(make_update) -> Update:
 @pytest.fixture
 def update_with_device(make_update) -> Update:
     device = DeviceInfo(name="test_device", identifiers="test_device_id")
-    return make_update(name="firmware_update", device=device, unique_id="test_firmware_update")
+    return make_update(
+        name="firmware_update", device=device, unique_id="test_firmware_update"
+    )
 
 
 def test_required_config():
@@ -65,7 +73,9 @@ def test_update_with_device_requires_unique_id():
     device = DeviceInfo(name="test_device", identifiers="test_device_id")
     mqtt_settings = Settings.MQTT(host="localhost")
 
-    with pytest.raises(ValueError, match="A unique_id is required if a device is defined"):
+    with pytest.raises(
+        ValueError, match="A unique_id is required if a device is defined"
+    ):
         update_info = UpdateInfo(name="test", device=device)
         settings = Settings(mqtt=mqtt_settings, entity=update_info)
         Update(settings, lambda *_: None)
@@ -110,7 +120,9 @@ def test_custom_latest_version_topic(make_update):
 
 
 def test_default_latest_version_topic(update: Update):
-    expected_topic = f"{update._settings.mqtt.state_prefix}/{update._entity_topic}/latest_version"
+    expected_topic = (
+        f"{update._settings.mqtt.state_prefix}/{update._entity_topic}/latest_version"
+    )
     assert update._latest_version_topic == expected_topic
 
 
@@ -129,7 +141,9 @@ def test_set_installed_version(update: Update):
 def test_set_latest_version(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
         update.set_latest_version("1.2.4")
-        mock_publish.assert_called_with(update._latest_version_topic, "1.2.4", retain=True)
+        mock_publish.assert_called_with(
+            update._latest_version_topic, "1.2.4", retain=True
+        )
 
 
 def test_set_progress_valid(update: Update):
@@ -181,6 +195,7 @@ def test_set_state_with_latest_version_only(update: Update):
         assert published_data["in_progress"] is False
         assert "update_percentage" not in published_data
 
+
 def test_set_state_in_progress_false_explicit(update: Update):
     """Test that in_progress=False is explicitly published in JSON state"""
     with patch.object(update.mqtt_client, "publish") as mock_publish:
@@ -199,7 +214,9 @@ def test_set_state_in_progress_false_explicit(update: Update):
 
 def test_set_state_complete(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
-        update.set_state(installed="1.2.3", latest="1.2.4", in_progress=True, progress=75)
+        update.set_state(
+            installed="1.2.3", latest="1.2.4", in_progress=True, progress=75
+        )
 
         call_args = mock_publish.call_args
         published_data = json.loads(call_args[0][1])
@@ -286,7 +303,10 @@ def test_update_state_with_typeddict(update: Update):
     with patch.object(update.mqtt_client, "publish") as mock_publish:
         from ha_mqtt_discoverable.sensors import UpdateStatePayload
 
-        state_dict: UpdateStatePayload = {"installed_version": "1.2.3", "in_progress": False}
+        state_dict: UpdateStatePayload = {
+            "installed_version": "1.2.3",
+            "in_progress": False,
+        }
         update._update_state(state_dict)
 
         call_args = mock_publish.call_args
@@ -316,6 +336,7 @@ def test_topics_with_device(update_with_device: Update):
 
 
 # Tests for new functionality and JSON validation
+
 
 def test_update_info_display_precision(make_update):
     """Test that display_precision field is properly handled"""
@@ -352,7 +373,7 @@ def test_set_state_with_all_metadata(update: Update):
             title="Major Update",
             release_summary="This update includes bug fixes and new features",
             release_url="https://example.com/releases/1.1.0",
-            entity_picture="https://example.com/icon.png"
+            entity_picture="https://example.com/icon.png",
         )
 
         call_args = mock_publish.call_args
@@ -361,7 +382,10 @@ def test_set_state_with_all_metadata(update: Update):
         assert published_data["installed_version"] == "1.0.0"
         assert published_data["latest_version"] == "1.1.0"
         assert published_data["title"] == "Major Update"
-        assert published_data["release_summary"] == "This update includes bug fixes and new features"
+        assert (
+            published_data["release_summary"]
+            == "This update includes bug fixes and new features"
+        )
         assert published_data["release_url"] == "https://example.com/releases/1.1.0"
         assert published_data["entity_picture"] == "https://example.com/icon.png"
         assert published_data["in_progress"] is False
@@ -377,7 +401,9 @@ def test_set_state_auto_in_progress_when_progress_set(update: Update):
         published_data = json.loads(call_args[0][1])
 
         assert published_data["update_percentage"] == 50
-        assert published_data["in_progress"] is True  # Should be True despite explicit False
+        assert (
+            published_data["in_progress"] is True
+        )  # Should be True despite explicit False
 
 
 def test_json_validation_valid_payload(update: Update):
@@ -388,7 +414,7 @@ def test_json_validation_valid_payload(update: Update):
             "installed_version": "1.0.0",
             "latest_version": "1.1.0",
             "in_progress": False,
-            "update_percentage": 50
+            "update_percentage": 50,
         }
         update._update_state(valid_state)
 
@@ -399,19 +425,23 @@ def test_json_validation_valid_payload(update: Update):
 def test_json_validation_invalid_progress_range(update: Update):
     """Test that invalid progress values are caught by validation"""
     with pytest.raises(ValueError, match="Invalid update state payload"):
-        update._update_state({
-            "installed_version": "1.0.0",
-            "update_percentage": 150  # Invalid: > 100
-        })
+        update._update_state(
+            {
+                "installed_version": "1.0.0",
+                "update_percentage": 150,  # Invalid: > 100
+            }
+        )
 
 
 def test_json_validation_invalid_url(update: Update):
     """Test that invalid URLs are caught by validation"""
     with pytest.raises(ValueError, match="Invalid update state payload"):
-        update._update_state({
-            "installed_version": "1.0.0",
-            "release_url": "not-a-valid-url"  # Invalid URL format
-        })
+        update._update_state(
+            {
+                "installed_version": "1.0.0",
+                "release_url": "not-a-valid-url",  # Invalid URL format
+            }
+        )
 
 
 def test_json_validation_exclude_none_values(update: Update):
@@ -421,7 +451,7 @@ def test_json_validation_exclude_none_values(update: Update):
             "installed_version": "1.0.0",
             "latest_version": None,  # Should be excluded
             "in_progress": False,
-            "title": None  # Should be excluded
+            "title": None,  # Should be excluded
         }
         update._update_state(state_with_nones)
 
@@ -445,7 +475,7 @@ def test_generate_config_includes_all_ha_options(make_update):
         release_url="https://example.com/release",
         title="Test Update",
         value_template="{{ value_json.current }}",
-        payload_install="UPDATE_NOW"
+        payload_install="UPDATE_NOW",
     )
 
     config = update_entity.generate_config()
@@ -471,7 +501,7 @@ def test_typeddict_validation_directly():
         "latest_version": "1.1.0",
         "update_percentage": 50,
         "in_progress": True,
-        "release_url": "https://example.com/release"
+        "release_url": "https://example.com/release",
     }
 
     # Should validate without error
@@ -485,8 +515,9 @@ def test_typeddict_validation_directly():
 
 def test_typeddict_validation_invalid_percentage():
     """Test that invalid percentage values are rejected"""
-    from ha_mqtt_discoverable.sensors import update_state_validator
     from pydantic import ValidationError
+
+    from ha_mqtt_discoverable.sensors import update_state_validator
 
     with pytest.raises(ValidationError):
         update_state_validator.validate_python({"update_percentage": 150})  # > 100
@@ -497,8 +528,9 @@ def test_typeddict_validation_invalid_percentage():
 
 def test_typeddict_validation_invalid_url():
     """Test that invalid URLs are rejected"""
-    from ha_mqtt_discoverable.sensors import update_state_validator
     from pydantic import ValidationError
+
+    from ha_mqtt_discoverable.sensors import update_state_validator
 
     with pytest.raises(ValidationError):
         update_state_validator.validate_python({"release_url": "not-a-url"})
@@ -521,11 +553,13 @@ def test_update_state_logs_validation_errors(update: Update):
 
 def test_update_state_logs_debug_for_valid_payload(update: Update):
     """Test that successful validation logs debug info"""
-    with patch.object(update.mqtt_client, "publish"):
-        with patch("ha_mqtt_discoverable.sensors.logger") as mock_logger:
-            valid_state = {"installed_version": "1.0.0", "in_progress": False}
-            update._update_state(valid_state)
+    with (
+        patch.object(update.mqtt_client, "publish"),
+        patch("ha_mqtt_discoverable.sensors.logger") as mock_logger,
+    ):
+        valid_state = {"installed_version": "1.0.0", "in_progress": False}
+        update._update_state(valid_state)
 
-            # Should have logged debug info about validation
-            mock_logger.debug.assert_called_once()
-            assert "Validated update state payload" in str(mock_logger.debug.call_args)
+        # Should have logged debug info about validation
+        mock_logger.debug.assert_called_once()
+        assert "Validated update state payload" in str(mock_logger.debug.call_args)

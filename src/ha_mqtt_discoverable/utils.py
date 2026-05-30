@@ -21,7 +21,12 @@ import yaml
 from ha_mqtt_discoverable import CONFIGURATION_KEY_NAMES
 
 
-def clean_string(raw: str, space_char: str = "-", collapse_sequences: bool = False, remove_apostrophes: bool = False) -> str:
+def clean_string(
+    raw: str,
+    space_char: str = "-",
+    collapse_sequences: bool = False,
+    remove_apostrophes: bool = False,
+) -> str:
     """
     MQTT Discovery protocol only allows [a-zA-Z0-9_-]
     """

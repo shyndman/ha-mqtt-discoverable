@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 
 # === Pydantic Payload Models ===
 
+
 class RepeatMode(str, Enum):
     """Valid repeat modes for media players"""
+
     OFF = "off"
     ALL = "all"
     ONE = "one"
@@ -22,6 +24,7 @@ class RepeatMode(str, Enum):
 
 class PlayMediaPayload(BaseModel):
     """Payload structure for play_media commands"""
+
     media_type: str
     media_id: str
     enqueue: str | None = None  # "add", "next", "play", "replace"
@@ -35,7 +38,7 @@ type CommandCallback = Callable[[Client, object, MQTTMessage], None]
 
 # Payload-based callbacks (parsed payload first)
 type FloatCallback = Callable[[float, Client, object, MQTTMessage], None]
-type BoolCallback = Callable[[bool, Client, object, MQTTMessage], None] 
+type BoolCallback = Callable[[bool, Client, object, MQTTMessage], None]
 type SelectionCallback = Callable[[str, Client, object, MQTTMessage], None]
 type RepeatCallback = Callable[[RepeatMode, Client, object, MQTTMessage], None]
 type PlayMediaCallback = Callable[[PlayMediaPayload, Client, object, MQTTMessage], None]
@@ -171,14 +174,18 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             Topics must be generated before calling super().__init__() because the
             _on_client_connected callback needs access to self._topics for subscription.
         """
-        logger.debug(f"Initializing MediaPlayer '{settings.entity.name}' with callbacks: {list(callbacks.keys())}")
+        logger.debug(
+            f"Initializing MediaPlayer '{settings.entity.name}' with callbacks: {list(callbacks.keys())}"
+        )
         self._callbacks = callbacks
         self._topics = {}
 
         # Generate topics based on provided callbacks before calling super()
         # This is required because _on_client_connected needs self._topics
         self._generate_topics(settings)
-        logger.debug(f"Generated {len(self._topics)} topics for MediaPlayer '{settings.entity.name}'")
+        logger.debug(
+            f"Generated {len(self._topics)} topics for MediaPlayer '{settings.entity.name}'"
+        )
 
         super().__init__(settings, self._on_client_connected)
 
@@ -190,7 +197,9 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
     def _on_client_connected(self, client, *args):
         """Subscribe to all command topics based on provided callbacks"""
-        logger.debug(f"MQTT client connected for MediaPlayer '{self._entity.name}', subscribing to command topics")
+        logger.debug(
+            f"MQTT client connected for MediaPlayer '{self._entity.name}', subscribing to command topics"
+        )
         subscribed_count = 0
         for topic_key, topic_url in self._topics.items():
             # Only subscribe to command topics (not state topics)
@@ -198,15 +207,21 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
                 logger.debug(f"Subscribing to command topic '{topic_key}': {topic_url}")
                 result, _ = client.subscribe(topic_url, qos=1)
                 if result != 0:  # mqtt.MQTT_ERR_SUCCESS
-                    logger.error(f"Error subscribing to MQTT command topic: {topic_url}")
+                    logger.error(
+                        f"Error subscribing to MQTT command topic: {topic_url}"
+                    )
                 else:
                     subscribed_count += 1
-        logger.debug(f"Successfully subscribed to {subscribed_count} command topics for MediaPlayer '{self._entity.name}'")
+        logger.debug(
+            f"Successfully subscribed to {subscribed_count} command topics for MediaPlayer '{self._entity.name}'"
+        )
 
     def _generate_topics(self, settings):
         """Generate topics based on supported features and properties"""
         entity = settings.entity
-        logger.debug(f"Generating topics for MediaPlayer '{entity.name}' with {len(self._callbacks)} callbacks")
+        logger.debug(
+            f"Generating topics for MediaPlayer '{entity.name}' with {len(self._callbacks)} callbacks"
+        )
 
         # Import here to avoid circular dependency
         from ha_mqtt_discoverable.utils import clean_string
@@ -247,24 +262,50 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             MediaPlayerTopics.PLAY_MEDIA,
             MediaPlayerTopics.BROWSE_MEDIA,
         ]
-        command_topics_generated = sum(int(generate_topic(topic_key)) for topic_key in command_topic_keys)
+        command_topics_generated = sum(
+            int(generate_topic(topic_key)) for topic_key in command_topic_keys
+        )
 
-        logger.debug(f"Generated {command_topics_generated} command topics for callbacks")
+        logger.debug(
+            f"Generated {command_topics_generated} command topics for callbacks"
+        )
 
         # Generate state topics for properties that might be used
         state_topics_generated = 10  # We always generate 10 state topics
-        self._topics[MediaPlayerTopics.STATE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.STATE}"
-        self._topics[MediaPlayerTopics.TITLE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TITLE}"
-        self._topics[MediaPlayerTopics.ARTIST] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ARTIST}"
-        self._topics[MediaPlayerTopics.ALBUM] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUM}"
-        self._topics[MediaPlayerTopics.DURATION] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.DURATION}"
-        self._topics[MediaPlayerTopics.POSITION] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.POSITION}"
-        self._topics[MediaPlayerTopics.VOLUME] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME}"
-        self._topics[MediaPlayerTopics.ALBUMART] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUMART}"
-        self._topics[MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE}"
-        self._topics[MediaPlayerTopics.AVAILABILITY] = f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.AVAILABILITY}"
+        self._topics[MediaPlayerTopics.STATE] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.STATE}"
+        )
+        self._topics[MediaPlayerTopics.TITLE] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.TITLE}"
+        )
+        self._topics[MediaPlayerTopics.ARTIST] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ARTIST}"
+        )
+        self._topics[MediaPlayerTopics.ALBUM] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUM}"
+        )
+        self._topics[MediaPlayerTopics.DURATION] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.DURATION}"
+        )
+        self._topics[MediaPlayerTopics.POSITION] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.POSITION}"
+        )
+        self._topics[MediaPlayerTopics.VOLUME] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.VOLUME}"
+        )
+        self._topics[MediaPlayerTopics.ALBUMART] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.ALBUMART}"
+        )
+        self._topics[MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE}"
+        )
+        self._topics[MediaPlayerTopics.AVAILABILITY] = (
+            f"{state_prefix}/{entity_topic}/{MediaPlayerTopics.AVAILABILITY}"
+        )
 
-        logger.debug(f"Generated {state_topics_generated} state topics (always included)")
+        logger.debug(
+            f"Generated {state_topics_generated} state topics (always included)"
+        )
         logger.debug(
             f"Total topics generated for MediaPlayer '{entity.name}': {len(self._topics)} "
             f"({command_topics_generated} command + {state_topics_generated} state)"
@@ -328,8 +369,12 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
     def set_media_image_remotely_accessible(self, accessible: bool) -> None:
         """Update whether media image URL is accessible outside the home network"""
         message = "true" if accessible else "false"
-        logger.info(f"Setting {self._entity.name} media image remotely accessible to {message}")
-        self._state_helper(message, topic=self._topics["media_image_remotely_accessible"])
+        logger.info(
+            f"Setting {self._entity.name} media image remotely accessible to {message}"
+        )
+        self._state_helper(
+            message, topic=self._topics["media_image_remotely_accessible"]
+        )
 
     def set_muted(self, muted: bool) -> None:
         """Update mute state"""
@@ -351,7 +396,9 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
         valid_modes = ["off", "all", "one"]
         if repeat not in valid_modes:
-            raise ValueError(f"Invalid repeat mode '{repeat}'. Must be one of: {valid_modes}")
+            raise ValueError(
+                f"Invalid repeat mode '{repeat}'. Must be one of: {valid_modes}"
+            )
 
         logger.info(f"Setting {self._entity.name} repeat to {repeat}")
 
@@ -363,7 +410,15 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
     # === Bulk Update Methods ===
 
-    def update_media_info(self, title, duration, artist=None, album=None, albumart_url=None, media_image_remotely_accessible=None):
+    def update_media_info(
+        self,
+        title,
+        duration,
+        artist=None,
+        album=None,
+        albumart_url=None,
+        media_image_remotely_accessible=None,
+    ):
         """Update media properties, clearing all fields first then setting provided values"""
         # Prepare final values - use empty strings/zero for clearing, or provided values
         final_title = title
@@ -371,7 +426,11 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         final_artist = artist if artist is not None else ""
         final_album = album if album is not None else ""
         final_albumart_url = albumart_url if albumart_url is not None else ""
-        final_media_image_remotely_accessible = media_image_remotely_accessible if media_image_remotely_accessible is not None else False
+        final_media_image_remotely_accessible = (
+            media_image_remotely_accessible
+            if media_image_remotely_accessible is not None
+            else False
+        )
 
         # Set all values once
         self.set_title(final_title)
@@ -381,7 +440,9 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         self.set_albumart_url(final_albumart_url)
         self.set_media_image_remotely_accessible(final_media_image_remotely_accessible)
 
-    def update_playback_state(self, state=None, volume=None, muted=None, shuffle=None, repeat=None):
+    def update_playback_state(
+        self, state=None, volume=None, muted=None, shuffle=None, repeat=None
+    ):
         """Update multiple playback properties at once"""
         if state is not None:
             self.set_state(state)
@@ -425,9 +486,13 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
                 # Payload-based commands need parsing
                 parsed_payload = self._parse_command_payload(command_name, payload)
                 logger.debug(f"Parsed payload for {command_name}: {parsed_payload}")
-                logger.debug(f"Invoking payload-based callback for command: {command_name}")
-                self._callbacks[command_name](parsed_payload, client, user_data, message)
-            
+                logger.debug(
+                    f"Invoking payload-based callback for command: {command_name}"
+                )
+                self._callbacks[command_name](
+                    parsed_payload, client, user_data, message
+                )
+
             logger.debug(f"Successfully executed callback for {command_name}")
         except Exception:
             logger.exception(f"Error executing callback for {command_name}")
@@ -435,9 +500,9 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
     def _parse_command_payload(self, command: str, payload: str):
         """Parse command payload based on command type"""
         import json
-        
+
         logger.debug(f"Parsing payload for command '{command}': {payload}")
-        
+
         match command:
             case MediaPlayerTopics.VOLUME_SET | MediaPlayerTopics.SEEK:
                 try:
@@ -447,25 +512,31 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
                 except ValueError:
                     logger.exception(f"Invalid float payload for {command}: {payload}")
                     return None
-            
+
             case MediaPlayerTopics.SHUFFLE_SET | MediaPlayerTopics.VOLUME_MUTE:
                 parsed_value = payload.upper() == "ON"
-                logger.debug(f"Parsed boolean payload for {command}: {parsed_value} (from '{payload}')")
+                logger.debug(
+                    f"Parsed boolean payload for {command}: {parsed_value} (from '{payload}')"
+                )
                 return parsed_value
-            
+
             case MediaPlayerTopics.REPEAT_SET:
                 try:
                     repeat_mode = RepeatMode(payload)
                     logger.debug(f"Parsed repeat mode for {command}: {repeat_mode}")
                     return repeat_mode
                 except ValueError:
-                    logger.exception(f"Invalid repeat mode for {command}: {payload}. Valid modes: {[mode.value for mode in RepeatMode]}")
+                    logger.exception(
+                        f"Invalid repeat mode for {command}: {payload}. Valid modes: {[mode.value for mode in RepeatMode]}"
+                    )
                     return None
-            
+
             case MediaPlayerTopics.PLAY_MEDIA:
                 try:
                     play_media_payload = PlayMediaPayload.model_validate_json(payload)
-                    logger.debug(f"Parsed play_media JSON for {command}: {play_media_payload}")
+                    logger.debug(
+                        f"Parsed play_media JSON for {command}: {play_media_payload}"
+                    )
                     return play_media_payload
                 except json.JSONDecodeError:
                     logger.exception(f"Invalid JSON payload for {command}")
@@ -473,7 +544,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
                 except Exception:
                     logger.exception(f"Invalid play_media payload for {command}")
                     return None
-            
+
             case _:
                 # String selection commands (select_source, select_sound_mode)
                 logger.debug(f"Using string payload for {command}: {payload}")
@@ -481,7 +552,9 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
     def generate_config(self) -> dict[str, str]:
         """Generate discovery config based on available topics"""
-        logger.debug(f"Generating Home Assistant discovery config for MediaPlayer '{self._entity.name}'")
+        logger.debug(
+            f"Generating Home Assistant discovery config for MediaPlayer '{self._entity.name}'"
+        )
         config = super().generate_config()
 
         # Add all available topics to the config
@@ -494,14 +567,20 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             """Add topic to config if it exists, with debug logging"""
             if topic_key in self._topics:
                 topics[config_key] = self._topics[topic_key]
-                logger.debug(f"Added {category} topic '{config_key}': {self._topics[topic_key]}")
+                logger.debug(
+                    f"Added {category} topic '{config_key}': {self._topics[topic_key]}"
+                )
                 return True
             return False
 
         # Add state topics (always present)
         state_topics_added = 0
-        state_topics_added += int(add_topic(MediaPlayerTopics.STATE, "state_topic", "state"))
-        if add_topic(MediaPlayerTopics.AVAILABILITY, "availability_topic", "availability"):
+        state_topics_added += int(
+            add_topic(MediaPlayerTopics.STATE, "state_topic", "state")
+        )
+        if add_topic(
+            MediaPlayerTopics.AVAILABILITY, "availability_topic", "availability"
+        ):
             topics["payload_available"] = "online"
             topics["payload_not_available"] = "offline"
             state_topics_added += 1
@@ -515,9 +594,15 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             (MediaPlayerTopics.POSITION, "media_position_topic"),
             (MediaPlayerTopics.VOLUME, "volume_level_topic"),
             (MediaPlayerTopics.ALBUMART, "media_image_url_topic"),
-            (MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE, "media_image_remotely_accessible_topic"),
+            (
+                MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE,
+                "media_image_remotely_accessible_topic",
+            ),
         ]
-        metadata_topics_added = sum(int(add_topic(topic_key, config_key, "metadata")) for topic_key, config_key in metadata_topics)
+        metadata_topics_added = sum(
+            int(add_topic(topic_key, config_key, "metadata"))
+            for topic_key, config_key in metadata_topics
+        )
         logger.debug(f"Added {metadata_topics_added} metadata topics to config")
 
         # Add command topics (only present if callbacks provided)
@@ -539,7 +624,10 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             (MediaPlayerTopics.PLAY_MEDIA, "play_media_topic"),
             (MediaPlayerTopics.BROWSE_MEDIA, "browse_media_topic"),
         ]
-        command_topics_added = sum(int(add_topic(topic_key, config_key, "command")) for topic_key, config_key in command_topics)
+        command_topics_added = sum(
+            int(add_topic(topic_key, config_key, "command"))
+            for topic_key, config_key in command_topics
+        )
         logger.debug(f"Added {command_topics_added} command topics to config")
 
         final_config = config | topics

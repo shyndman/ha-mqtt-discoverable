@@ -1,33 +1,46 @@
 [project]
 name = "ha-mqtt-discoverable"
-version = "0.19.2"
+version = "0.0.0"
 description = "Python library for creating MQTT entities compatible with Home Assistant"
-authors = [{name = "Joe Block", email = "jpb@unixorn.net"}]
 readme = "README.md"
-requires-python = ">=3.10.0,<4.0"
+authors = [
+    { name = "Joe Block", email = "jpb@unixorn.net" },
+    { name = "Scott Hyndman", email = "scotty.hyndman@gmail.com" }
+]
+maintainers = [
+    { name = "Scott Hyndman", email = "scotty.hyndman@gmail.com" }
+]
+requires-python = ">=3.13"
 dependencies = [
-    "pyaml==25.1.0",
-    "paho-mqtt==2.1.0",
-    "gitlike-commands (>=0.2.1,<0.4.0)",
-    "pydantic (>=2.11.9,<3.0.0)",
+    "gitlike-commands>=0.3.1",
+    "paho-mqtt>=2.1.0",
+    "pyaml>=26.2.1",
+    "pydantic>=2.13.4",
 ]
 
-
-[tool.poetry]
-packages = [{include = "ha_mqtt_discoverable"}]
-
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.3.5"
-pre-commit = "^4.2.0"
-ruff = "^0.11.7"
-
-
-[tool.poetry.group.test.dependencies]
-pytest-mock = "^3.10.0"
-
-
 [build-system]
-requires = ["poetry-core>=2.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
 
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.6",
+    "prek>=0.4.3",
+    "pytest>=9.0.3",
+    "pytest-mock>=3.15.1",
+    "ruff>=0.15.15",
+]
+
+[tool.ruff]
+target-version = "py313"
+src = ["scripts", "src", "tests"]
+
+[tool.basedpyright]
+pythonVersion = "3.13"
+typeCheckingMode = "recommended"
+failOnWarnings = true
+include = ["scripts", "src", "tests"]
+extraPaths = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

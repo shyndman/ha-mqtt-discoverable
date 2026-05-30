@@ -493,7 +493,7 @@ class DeviceInfo(BaseModel):
     """Hardware version of the device"""
     identifiers: list[str] | list[tuple[str, str]] | str | None = None
     """A list of IDs that uniquely identify the device. For example a serial number."""
-    connections: list[tuple] | None = None
+    connections: list[tuple[str, str]] | None = None
     """A list of connections of the device to the outside world as a list of tuples\
         [connection_type, connection_identifier]"""
     configuration_url: str | None = None
@@ -602,7 +602,7 @@ class Discoverable(Generic[EntityType]):
     Base class for making MQTT discoverable objects
     """
 
-    _settings: Settings
+    _settings: Settings[EntityType]
     _entity: EntityType
 
     mqtt_client: mqtt.Client
@@ -615,7 +615,9 @@ class Discoverable(Generic[EntityType]):
     attributes_topic: str
 
     def __init__(
-        self, settings: Settings[EntityType], on_connect: Callable | None = None
+        self,
+        settings: Settings[EntityType],
+        on_connect: Callable[..., Any] | None = None,
     ) -> None:
         """
         Creates a basic discoverable object.
@@ -700,7 +702,7 @@ wrote_configuration: {self.wrote_configuration}
         """
         return dump
 
-    def _setup_client(self, on_connect: Callable | None = None) -> None:
+    def _setup_client(self, on_connect: Callable[..., Any] | None = None) -> None:
         """Create an MQTT client and setup some basic properties on it"""
 
         # If the user has passed in an MQTT client, use it

@@ -14,13 +14,14 @@
 #    limitations under the License.
 
 import logging
+from typing import Any
 
 from ha_mqtt_discoverable.utils import read_yaml_file
 
 logger = logging.getLogger(__name__)
 
 
-def load_mqtt_settings(path: str = None, cli=None) -> dict:
+def load_mqtt_settings(path: str = None, cli=None) -> dict[str, Any]:
     """
     Base settings loader & validator
 
@@ -84,7 +85,7 @@ def load_mqtt_settings(path: str = None, cli=None) -> dict:
     return settings
 
 
-def sensor_delete_settings(path: str = None, cli=None) -> dict:
+def sensor_delete_settings(path: str = None, cli=None) -> dict[str, Any]:
     """
     Load settings
     Valid characters for object_id and node_id are [a-zA-Z0-9_-]
@@ -129,7 +130,7 @@ def sensor_delete_settings(path: str = None, cli=None) -> dict:
         raise RuntimeError("No mqtt_password was specified")
 
 
-def binary_sensor_settings(path: str = None, cli=None) -> dict:
+def binary_sensor_settings(path: str = None, cli=None) -> dict[str, Any]:
     """
     Load settings for a binary sensor
     """
@@ -140,7 +141,7 @@ def binary_sensor_settings(path: str = None, cli=None) -> dict:
     return settings
 
 
-def device_settings(path: str = None, cli=None) -> dict:
+def device_settings(path: str = None, cli=None) -> dict[str, Any]:
     """
     Load settings for a device
     """

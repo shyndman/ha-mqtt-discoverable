@@ -24,6 +24,7 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
   - [Device trigger](#device-trigger)
   - [Image](#image)
   - [Light](#light)
+  - [Media player](#media-player)
   - [Number](#number)
   - [Select](#select)
   - [Sensor](#sensor)
@@ -43,7 +44,7 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
 
 ### Python
 
-ha-mqtt-discoverable runs on Python 3.10 or later.
+ha-mqtt-discoverable runs on Python 3.13 or later.
 
 `pip install ha-mqtt-discoverable` if you want to use it in your own python scripts. `pip install ha-mqtt-discoverable-cli` to install the `hmd` utility scripts.
 
@@ -60,6 +61,7 @@ The following Home Assistant entities are currently implemented:
 - Device trigger
 - Image
 - Light
+- Media player
 - Number
 - Select
 - Sensor
@@ -380,6 +382,53 @@ my_light = Light(settings, my_callback, user_data)
 
 # Set the initial state of the light, which also makes it discoverable
 my_light.off()
+```
+
+### Media player
+
+The media player publishes playback state and metadata, and can receive commands from HA for the callbacks you provide.
+
+```py
+from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable.media_player import MediaPlayer, MediaPlayerInfo
+from paho.mqtt.client import Client, MQTTMessage
+
+# Configure the required parameters for the MQTT broker
+mqtt_settings = Settings.MQTT(host="localhost")
+
+# Information about the media player
+media_player_info = MediaPlayerInfo(
+    name="living_room_player",
+    device_class="speaker",
+    source_list=["tv", "bluetooth"],
+)
+
+settings = Settings(mqtt=mqtt_settings, entity=media_player_info)
+
+# To receive media-player commands from HA, define callback functions:
+def play_callback(client: Client, user_data, message: MQTTMessage):
+    start_playback()
+    my_media_player.set_state("playing")
+
+
+def pause_callback(client: Client, user_data, message: MQTTMessage):
+    pause_playback()
+    my_media_player.set_state("paused")
+
+
+callbacks = {
+    "play": play_callback,
+    "pause": pause_callback,
+}
+
+# Instantiate the media player
+my_media_player = MediaPlayer(settings, callbacks)
+
+# Publish the current playback state and metadata
+my_media_player.set_state("playing")
+my_media_player.set_title("Song Title")
+my_media_player.set_artist("Artist Name")
+my_media_player.set_volume(0.4)
 ```
 
 ### Number

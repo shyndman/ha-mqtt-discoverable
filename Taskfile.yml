@@ -1,0 +1,70 @@
+version: '3'
+
+vars:
+  MODULE_VERSION:
+    sh: grep '^version' pyproject.toml | cut -d= -f2 | sed 's/[" ]//g'
+
+tasks:
+  default:
+    desc: List available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  clean:
+    desc: Remove stale wheels, dist archives, and compiled Python files
+    aliases: [c]
+    cmds:
+      - rm -fv dist/*.tar dist/*.whl
+      - find . -iname '*.py[co]' -delete
+
+  format:
+    desc: Run ruff on all Python source files
+    aliases: [f]
+    cmds:
+      - uv run ruff check
+
+  test:
+    desc: Run tests with a temporary MQTT broker
+    aliases: [t]
+    cmds:
+      - ./scripts/test.py {{.CLI_ARGS}}
+
+  install-hooks:
+    desc: Install git hooks via prek
+    cmds:
+      - prek install
+
+  wheel:
+    desc: Build a wheel for the module
+    deps: [clean, format]
+    cmds:
+      - uv build
+
+  local:
+    desc: Build a Docker image for the local architecture only (does not push to Docker Hub)
+    deps: [wheel]
+    cmds:
+      - docker buildx build --load -t unixorn/ha-mqtt-discoverable-test:{{.MODULE_VERSION}} -f Dockerfile.testing .
+      - docker tag unixorn/ha-mqtt-discoverable-test:{{.MODULE_VERSION}} unixorn/ha-mqtt-discoverable-test:latest
+
+  trial:
+    desc: Build a Docker image without cache for local testing
+    deps: [wheel]
+    cmds:
+      - docker buildx build --no-cache --build-arg application_version={{.MODULE_VERSION}} --load -t unixorn/ha-mqtt-discoverable:{{.MODULE_VERSION}} .
+
+  multiarch-image:
+    desc: Build a multi-architecture Docker image (arm64, amd64, arm/v7) and push to Docker Hub
+    deps: [wheel]
+    cmds:
+      - docker buildx build --no-cache --build-arg application_version={{.MODULE_VERSION}} --platform linux/arm64,linux/amd64,linux/arm/v7 --push -t unixorn/ha-mqtt-discoverable .
+      - docker buildx build --build-arg application_version={{.MODULE_VERSION}} --platform linux/arm64,linux/amd64,linux/arm/v7 --push -t unixorn/ha-mqtt-discoverable:{{.MODULE_VERSION}} .
+      - docker pull unixorn/ha-mqtt-discoverable
+      - docker pull unixorn/ha-mqtt-discoverable:{{.MODULE_VERSION}}
+
+  publish:
+    desc: Build the multi-architecture image and publish the module to PyPI
+    deps: [multiarch-image]
+    cmds:
+      - uv publish

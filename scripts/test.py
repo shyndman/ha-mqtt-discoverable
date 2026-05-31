@@ -108,7 +108,9 @@ def main(args: list[str]) -> int:
         print_error("mosquitto command not found. Please install mosquitto broker.")
         print_error("  Ubuntu/Debian: sudo apt-get install mosquitto")
         print_error("  macOS: brew install mosquitto")
-        print_error("  Other: Check your package manager or visit https://mosquitto.org/")
+        print_error(
+            "  Other: Check your package manager or visit https://mosquitto.org/"
+        )
         return 1
 
     if not MOSQUITTO_CONFIG.is_file():
@@ -116,7 +118,9 @@ def main(args: list[str]) -> int:
         return 1
 
     if is_port_open(MQTT_HOST, MQTT_PORT):
-        print_error(f"Port {MQTT_PORT} is already in use. Please stop any running MQTT brokers.")
+        print_error(
+            f"Port {MQTT_PORT} is already in use. Please stop any running MQTT brokers."
+        )
         return 1
 
     print_status("Starting mosquitto MQTT broker...")

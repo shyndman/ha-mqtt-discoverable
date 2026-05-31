@@ -617,7 +617,7 @@ def test_typeddict_validation_invalid_url():
 
 def test_update_state_logs_validation_errors(update: Update):
     """Test that validation errors are properly logged"""
-    with patch("ha_mqtt_discoverable.sensors.logger") as mock_logger:
+    with patch("ha_mqtt_discoverable._update.logger") as mock_logger:
         with pytest.raises(ValueError):
             invoke_update_state(update, {"update_percentage": 150})
 
@@ -631,7 +631,7 @@ def test_update_state_logs_debug_for_valid_payload(update: Update):
     """Test that successful validation logs debug info"""
     with (
         patch.object(update.mqtt_client, "publish"),
-        patch("ha_mqtt_discoverable.sensors.logger") as mock_logger,
+        patch("ha_mqtt_discoverable._update.logger") as mock_logger,
     ):
         valid_state: UpdateStatePayload = {
             "installed_version": "1.0.0",

@@ -617,7 +617,6 @@ A `callback` function is required to handle install commands, as the following e
 import json
 from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import Update, UpdateInfo
-from ha_mqtt_discoverable.device_class import UpdateDeviceClass
 from paho.mqtt.client import Client, MQTTMessage
 
 # Configure the required parameters for the MQTT broker
@@ -626,7 +625,7 @@ mqtt_settings = Settings.MQTT(host="localhost")
 # Information about the update entity
 update_info = UpdateInfo(
     name="my-software",
-    device_class=UpdateDeviceClass.FIRMWARE,  # Optional: firmware, software, etc.
+    device_class="firmware",  # Optional: firmware, software, etc.
     title="My Software",
     release_summary="Bug fixes and improvements",
     release_url="https://github.com/myproject/releases"

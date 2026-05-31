@@ -13,7 +13,9 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 #
-from unittest.mock import patch
+import json
+from typing import Protocol, cast
+from unittest.mock import Mock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -22,9 +24,26 @@ from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import Sensor, SensorInfo
 
 
+class SensorFactory(Protocol):
+    def __call__(self, suggested_display_precision: None | int = 2) -> Sensor: ...
+
+
+def published_payload(mock_publish: object) -> dict[str, object]:
+    publish_mock = cast(Mock, mock_publish)
+    call_args = publish_mock.call_args
+    assert call_args is not None
+
+    payload = cast(str, call_args.args[1])
+    assert isinstance(payload, str)
+
+    parsed_payload = cast(object, json.loads(payload))
+    assert isinstance(parsed_payload, dict)
+    return cast(dict[str, object], parsed_payload)
+
+
 @pytest.fixture
-def make_sensor():
-    def _make_sensor(suggested_display_precision: None | int = 2):
+def make_sensor() -> SensorFactory:
+    def _make_sensor(suggested_display_precision: None | int = 2) -> Sensor:
         mqtt_settings = Settings.MQTT(host="localhost")
         sensor_info = SensorInfo(
             name="test",
@@ -38,7 +57,7 @@ def make_sensor():
 
 
 @pytest.fixture
-def sensor(make_sensor) -> Sensor:
+def sensor(make_sensor: SensorFactory) -> Sensor:
     return make_sensor()
 
 
@@ -50,11 +69,8 @@ def test_generate_config(sensor: Sensor):
     config = sensor.generate_config()
 
     assert config is not None
-    assert config["unit_of_measurement"] == sensor._entity.unit_of_measurement
-    assert (
-        config["suggested_display_precision"]
-        == sensor._entity.suggested_display_precision
-    )
+    assert config["unit_of_measurement"] == "kWh"
+    assert config["suggested_display_precision"] == 2
 
 
 def test_update_state(sensor: Sensor):
@@ -71,13 +87,10 @@ def test_update_state_with_last_reset(sensor: Sensor):
 
     with patch.object(sensor.mqtt_client, "publish") as mock_publish:
         sensor.set_state(1, midnight.isoformat())
-        parameter = mock_publish.call_args.args[1]
-        import json
-
-        parameter_json = json.loads(parameter)
+        parameter_json = published_payload(mock_publish)
         assert parameter_json["last_reset"] == midnight.isoformat()
 
 
-def test_invalid_suggested_display_precision(make_sensor):
+def test_invalid_suggested_display_precision(make_sensor: SensorFactory):
     with pytest.raises(ValidationError):
-        make_sensor(suggested_display_precision=-1)
+        _ = make_sensor(suggested_display_precision=-1)

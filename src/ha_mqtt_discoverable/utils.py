@@ -15,11 +15,11 @@
 #
 
 import re
-from typing import Any
+from typing import cast
 
 import yaml
 
-from ha_mqtt_discoverable import CONFIGURATION_KEY_NAMES
+from ha_mqtt_discoverable._config import CONFIGURATION_KEY_NAMES
 
 
 def clean_string(
@@ -42,7 +42,7 @@ def clean_string(
     return result.lower()
 
 
-def read_yaml_file(path: str) -> dict[str, Any]:
+def read_yaml_file(path: str) -> dict[str, object]:
     """
     Return the data structure contained in a yaml file
 
@@ -52,9 +52,18 @@ def read_yaml_file(path: str) -> dict[str, Any]:
     Returns:
         Data decoded from YAML file content
     """
-    with open(path) as yamlFile:
-        data = yaml.safe_load(yamlFile)
-        return data
+    with open(path, encoding="utf-8") as yamlFile:
+        loaded_data = cast(object, yaml.safe_load(yamlFile))
+
+    if not isinstance(loaded_data, dict):
+        raise ValueError("YAML content must be a mapping")
+
+    loaded_mapping = cast(dict[object, object], loaded_data)
+
+    if not all(isinstance(key, str) for key in loaded_mapping):
+        raise ValueError("YAML mapping keys must be strings")
+
+    return cast(dict[str, object], loaded_mapping)
 
 
 def valid_configuration_key(name: str) -> bool:

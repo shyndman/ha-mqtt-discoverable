@@ -20,11 +20,11 @@ import argparse
 from ha_mqtt_discoverable import __version__ as MODULE_VERSION
 
 
-def create_base_parser(description: str = "Base parser"):
+def create_base_parser(description: str = "Base parser") -> argparse.ArgumentParser:
     """
     Parse the command line options
     """
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=description)
     parser.add_argument("-d", "--debug", help="Debug setting", action="store_true")
     parser.add_argument(
         "-l",

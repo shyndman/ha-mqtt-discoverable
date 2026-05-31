@@ -17,40 +17,74 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
-from unittest.mock import MagicMock
+from typing import cast, override
 
 import pytest
-from paho.mqtt import subscribe
-from paho.mqtt.client import (
-    MQTT_ERR_SUCCESS,
-    Client,
-    MQTTMessage,
-    MQTTv5,
-)
-from paho.mqtt.enums import CallbackAPIVersion
+from paho.mqtt.client import Client, ConnectFlags, MQTTMessage, MQTTv5
+from paho.mqtt.enums import CallbackAPIVersion, MQTTErrorCode
+from paho.mqtt.properties import Properties
+from paho.mqtt.reasoncodes import ReasonCode
 from paho.mqtt.subscribeoptions import SubscribeOptions
-from pytest_mock import MockerFixture
 
 from ha_mqtt_discoverable import DeviceInfo, Discoverable, EntityInfo, Settings
 
 
+class DiscoverableHarness(Discoverable[EntityInfo]):
+    def connect_client(self) -> None:
+        self._connect_client()
+
+    def setup_client(self) -> None:
+        self._setup_client()
+
+    def publish_state(self, value: str | float | int | None) -> None:
+        _ = self._state_helper(value)
+
+    def set_device_info(self, device: DeviceInfo, unique_id: str) -> None:
+        self._entity.device = device
+        self._entity.unique_id = unique_id
+
+
+class TrackingClient(Client):
+    disconnect_called: bool
+    loop_stop_called: bool
+
+    def __init__(self) -> None:
+        super().__init__(callback_api_version=CallbackAPIVersion.VERSION2)
+        self.disconnect_called = False
+        self.loop_stop_called = False
+
+    @override
+    def disconnect(
+        self,
+        reasoncode: ReasonCode | None = None,
+        properties: Properties | None = None,
+    ) -> MQTTErrorCode:
+        self.disconnect_called = True
+        return super().disconnect(reasoncode=reasoncode, properties=properties)
+
+    @override
+    def loop_stop(self) -> MQTTErrorCode:
+        self.loop_stop_called = True
+        return super().loop_stop()
+
+
 @pytest.fixture
-def discoverable() -> Discoverable[EntityInfo]:
+def discoverable() -> DiscoverableHarness:
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    return Discoverable[EntityInfo](settings)
+    return DiscoverableHarness(settings)
 
 
 @pytest.fixture
-def discoverable_availability() -> Discoverable[EntityInfo]:
+def discoverable_availability() -> DiscoverableHarness:
     """Return an instance of Discoverable configured with `manual_availability`"""
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(
         mqtt=mqtt_settings, entity=sensor_info, manual_availability=True
     )
-    return Discoverable[EntityInfo](settings)
+    return DiscoverableHarness(settings)
 
 
 def test_required_config():
@@ -65,7 +99,7 @@ def test_missing_config():
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     # Missing MQTT settings
     with pytest.raises(ValueError):
-        Settings(entity=sensor_info)  # type: ignore
+        Settings[EntityInfo].model_validate({"entity": sensor_info.model_dump()})
 
 
 def test_custom_on_connect():
@@ -76,29 +110,44 @@ def test_custom_on_connect():
 
     is_connected = Event()
 
-    def custom_callback(*args):
+    def custom_callback(
+        _client: Client,
+        _user_data: object,
+        _flags: ConnectFlags,
+        _reason_code: ReasonCode,
+        _properties: Properties | None,
+    ) -> None:
         is_connected.set()
-        pass
 
-    d = Discoverable(settings, custom_callback)
-    d._connect_client()
+    d = DiscoverableHarness(settings, custom_callback)
+    d.connect_client()
     assert is_connected.wait(5)
 
 
-def test_custom_on_connect_must_be_called(mocker: MockerFixture):
+def test_custom_on_connect_must_be_called(monkeypatch: pytest.MonkeyPatch):
     """Test that _on_connect must be called if there is a custom_callback"""
-    mocked_client = mocker.patch("paho.mqtt.client.Client")
-    mock_instance: MagicMock = mocked_client.return_value
-
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
+    connect_called = False
 
-    # Define an empty lambda callback
-    Discoverable(settings, lambda: None)
-    # Avoid calling d._connect_client()
-    # Verify that on_connect on the client was not called
-    mock_instance.assert_not_called()
+    def fake_connect_client(_self: Discoverable[EntityInfo]) -> None:
+        nonlocal connect_called
+        connect_called = True
+
+    monkeypatch.setattr(Discoverable, "_connect_client", fake_connect_client)
+
+    def custom_callback(
+        _client: Client,
+        _user_data: object,
+        _flags: ConnectFlags,
+        _reason_code: ReasonCode,
+        _properties: Properties | None,
+    ) -> None:
+        return None
+
+    Discoverable(settings, custom_callback)
+    assert connect_called is False
 
 
 def test_mqtt_topics():
@@ -106,7 +155,6 @@ def test_mqtt_topics():
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     d = Discoverable[EntityInfo](settings)
-    assert d._entity_topic == "binary_sensor/test"
     assert d.config_topic == "homeassistant/binary_sensor/test/config"
     assert d.state_topic == "hmd/binary_sensor/test/state"
     assert d.attributes_topic == "hmd/binary_sensor/test/attributes"
@@ -120,13 +168,12 @@ def test_mqtt_topics_with_device():
     )
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     d = Discoverable[EntityInfo](settings)
-    assert d._entity_topic == "binary_sensor/test_device/test"
     assert d.config_topic == "homeassistant/binary_sensor/test_device/test/config"
     assert d.state_topic == "hmd/binary_sensor/test_device/test/state"
     assert d.attributes_topic == "hmd/binary_sensor/test_device/test/attributes"
 
 
-def test_generate_config(discoverable: Discoverable):
+def test_generate_config(discoverable: DiscoverableHarness):
     device_config = discoverable.generate_config()
 
     assert device_config is not None
@@ -136,22 +183,22 @@ def test_generate_config(discoverable: Discoverable):
     assert device_config["json_attributes_topic"] == "hmd/binary_sensor/test/attributes"
 
 
-def test_setup_client(discoverable: Discoverable):
+def test_setup_client(discoverable: DiscoverableHarness):
     # Try to setup client
-    discoverable._setup_client()
+    discoverable.setup_client()
     # Check that we save the client
     assert discoverable.mqtt_client is not None
 
 
-def test_connect_client(discoverable: Discoverable):
+def test_connect_client(discoverable: DiscoverableHarness):
     # Try to connect to MQTT
-    discoverable._setup_client()
-    discoverable._connect_client()
+    discoverable.setup_client()
+    discoverable.connect_client()
     # Check that we save the client
     assert discoverable.mqtt_client is not None
 
 
-def test_write_config(discoverable: Discoverable):
+def test_write_config(discoverable: DiscoverableHarness):
     # Write config to MQTT
     discoverable.write_config()
 
@@ -159,24 +206,23 @@ def test_write_config(discoverable: Discoverable):
     assert discoverable.config_message is not None
 
 
-def test_state_helper(discoverable: Discoverable):
+def test_state_helper(discoverable: DiscoverableHarness):
     # Write a state to MQTT
-    discoverable._state_helper("test")
+    discoverable.publish_state("test")
     # Check that flag is set
     assert discoverable.wrote_configuration is True
     assert discoverable.config_message is not None
 
 
-def test_device_info(discoverable: Discoverable[EntityInfo]):
+def test_device_info(discoverable: DiscoverableHarness):
     device_info = DeviceInfo(name="Test device", identifiers="test_device_id")
-    # Assign the sensor to a device
-    discoverable._entity.device = device_info
-    discoverable._entity.unique_id = "test_sensor"
+    discoverable.set_device_info(device_info, "test_sensor")
     config = discoverable.generate_config()
 
     # Check that the device info is put in the output config
     assert config["device"] is not None
-    assert config["device"]["name"] == "Test device"
+    device_config = cast(dict[str, object], config["device"])
+    assert device_config["name"] == "Test device"
 
     discoverable.write_config()
 
@@ -218,27 +264,32 @@ def test_custom_object_id():
     d.write_config()
 
 
-def test_str(discoverable: Discoverable[EntityInfo]):
+def test_str(discoverable: DiscoverableHarness):
     string = str(discoverable)
     print(string)
     assert "settings" in string
 
 
 # Define a callback function to be invoked when we receive a message on the topic
-def message_callback(client: Client, userdata, message: MQTTMessage, tmp=None):
+def message_callback(
+    client: Client,
+    userdata: Event | None,
+    message: MQTTMessage,
+) -> None:
     logging.info("Received %s", message)
     # If the broker is `dirty` and contains messages send by other test functions,
     # skip these retained messages
     if message.retain:
-        logging.warn("Skipping retained message")
+        logging.warning("Skipping retained message")
         return
     payload = message.payload.decode()
     assert "test" in payload
+    assert userdata is not None
     userdata.set()
     client.disconnect()
 
 
-def test_publish_multithread(discoverable: Discoverable):
+def test_publish_multithread(discoverable: DiscoverableHarness):
     received_message = Event()
     mqtt_client = Client(
         callback_api_version=CallbackAPIVersion.VERSION2,
@@ -258,7 +309,7 @@ def test_publish_multithread(discoverable: Discoverable):
 
     # Write a state to MQTT from another thread
     with ThreadPoolExecutor() as executor:
-        future = executor.submit(discoverable._state_helper, "test")
+        future = executor.submit(discoverable.publish_state, "test")
         # Wait for executor to finish
         future.result(1)
         # Check that flag is set
@@ -269,7 +320,7 @@ def test_publish_multithread(discoverable: Discoverable):
     assert received_message.wait(1)
 
 
-def test_publish_async(discoverable: Discoverable):
+def test_publish_async(discoverable: DiscoverableHarness):
     received_message = Event()
     mqtt_client = Client(
         callback_api_version=CallbackAPIVersion.VERSION2,
@@ -288,8 +339,8 @@ def test_publish_async(discoverable: Discoverable):
     mqtt_client.loop_start()
 
     # Write a state to MQTT from an asyncio event loop
-    async def publish_state():
-        discoverable._state_helper("test")
+    async def publish_state() -> None:
+        discoverable.publish_state("test")
 
     asyncio.run(publish_state())
 
@@ -297,23 +348,25 @@ def test_publish_async(discoverable: Discoverable):
     assert received_message.wait(1)
 
 
-def test_disconnect_client(mocker: MockerFixture):
+def test_disconnect_client():
     """Test that the __del__ method disconnects from the broker"""
-    mocked_client = mocker.patch("paho.mqtt.client.Client")
-    mock_instance = mocked_client.return_value
-    mock_instance.connect.return_value = MQTT_ERR_SUCCESS
-    mqtt_settings = Settings.MQTT(host="localhost")
+    tracking_client = TrackingClient()
     sensor_info = EntityInfo(name="test", component="binary_sensor")
-    settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
+    settings = Settings(
+        mqtt=Settings.MQTT(host="localhost", client=tracking_client),
+        entity=sensor_info,
+    )
 
     discoverable = Discoverable[EntityInfo](settings)
     del discoverable
 
-    mock_instance.disconnect.assert_called_once()
-    mock_instance.loop_stop.assert_called_once()
+    assert tracking_client.disconnect_called is True
+    assert tracking_client.loop_stop_called is True
 
 
-def test_set_availability_topic(discoverable_availability: Discoverable):
+def test_set_availability_topic(
+    discoverable_availability: Discoverable[EntityInfo],
+):
     assert discoverable_availability.availability_topic is not None
     assert (
         discoverable_availability.availability_topic
@@ -321,32 +374,61 @@ def test_set_availability_topic(discoverable_availability: Discoverable):
     )
 
 
-def test_config_availability_topic(discoverable_availability: Discoverable):
+def test_config_availability_topic(
+    discoverable_availability: Discoverable[EntityInfo],
+):
     config = discoverable_availability.generate_config()
     assert config.get("availability_topic") is not None
 
 
-def test_set_availability(discoverable_availability: Discoverable):
-    # Send availability message
-    discoverable_availability.set_availability(True)
+def test_set_availability(
+    discoverable_availability: DiscoverableHarness,
+):
+    received_payloads: list[str] = []
+    availability_received = Event()
 
-    # Receive a single message, ignoring retained messages
-    availability_message = subscribe.simple(
-        discoverable_availability.availability_topic, msg_count=1, retained=False
+    def availability_callback(
+        _client: Client,
+        _user_data: object,
+        message: MQTTMessage,
+    ) -> None:
+        if message.retain:
+            return
+
+        received_payloads.append(message.payload.decode("utf-8"))
+        if len(received_payloads) == 2:
+            availability_received.set()
+
+    mqtt_client = Client(
+        callback_api_version=CallbackAPIVersion.VERSION2,
+        protocol=MQTTv5,
     )
-    assert isinstance(availability_message, MQTTMessage)
-    assert availability_message.payload.decode("utf-8") == "online"
+    mqtt_client.connect(host="localhost", clean_start=True)
+    mqtt_client.on_message = availability_callback
+    mqtt_client.subscribe(
+        (
+            discoverable_availability.availability_topic,
+            SubscribeOptions(retainHandling=SubscribeOptions.RETAIN_DO_NOT_SEND),
+        )
+    )
+    mqtt_client.loop_start()
 
+    discoverable_availability.set_availability(True)
     discoverable_availability.set_availability(False)
 
+    assert availability_received.wait(1)
+    assert received_payloads == ["online", "offline"]
+    mqtt_client.disconnect()
+    mqtt_client.loop_stop()
 
-def test_set_availability_wrong_config(discoverable: Discoverable):
+
+def test_set_availability_wrong_config(discoverable: DiscoverableHarness):
     """A discoverable that has not set availability to manual cannot invoke the \
         methods"""
     with pytest.raises(RuntimeError):
         discoverable.set_availability(True)
 
 
-def test_set_attributes(discoverable: Discoverable):
-    attributes = {"test attribute": "test"}
+def test_set_attributes(discoverable: DiscoverableHarness):
+    attributes: dict[str, object] = {"test attribute": "test"}
     discoverable.set_attributes(attributes)

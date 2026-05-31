@@ -14,9 +14,19 @@
 #    limitations under the License.
 #
 import pytest
+from paho.mqtt.client import Client, MQTTMessage
 
 from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import Light, LightInfo
+
+
+def noop_command_callback(
+    _client: Client,
+    _user_data: object | None,
+    _message: MQTTMessage,
+) -> None:
+    return None
+
 
 # Test data
 color_modes = ["rgb", "rgbw"]
@@ -35,7 +45,7 @@ def light() -> Light:
         effect_list=effects,
     )
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    return Light(settings, lambda *_: None)
+    return Light(settings, noop_command_callback)
 
 
 def test_required_config():
@@ -43,7 +53,7 @@ def test_required_config():
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = LightInfo(name="test")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    sensor = Light(settings, lambda *_: None)
+    sensor = Light(settings, noop_command_callback)
     assert sensor is not None
 
 
@@ -60,16 +70,16 @@ def test_brightness(light: Light, brightness: int):
 
 
 @pytest.mark.parametrize("brightness", [-1, 256])
-def test_brightness_out_of_range(light: Light, brightness):
+def test_brightness_out_of_range(light: Light, brightness: int) -> None:
     """Test to make sure brightness can't be set out of bounds"""
     with pytest.raises(RuntimeError):
         light.brightness(brightness)
 
 
-@pytest.mark.parametrize("color_modes", color_modes)
-def test_color(light: Light, color_modes):
+@pytest.mark.parametrize("color_mode", color_modes)
+def test_color(light: Light, color_mode: str) -> None:
     """Test to set the color"""
-    light.color(color_modes, {"test": 123})
+    light.color(color_mode, {"test": 123})
 
 
 def test_color_unsupported(light: Light):
@@ -78,10 +88,10 @@ def test_color_unsupported(light: Light):
         light.color("test", {"r": 255, "g": 255, "b": 255})
 
 
-@pytest.mark.parametrize("effects", effects)
-def test_effect(light: Light, effects):
+@pytest.mark.parametrize("effect", effects)
+def test_effect(light: Light, effect: str) -> None:
     """Test to enable effect"""
-    light.effect(effects)
+    light.effect(effect)
 
 
 def test_effect_unsupported(light: Light):

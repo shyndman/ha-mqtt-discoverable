@@ -21,10 +21,17 @@ from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import Image, ImageInfo
 
 
+IMAGE_URL_TOPIC = "topic_to_publish_url_to"
+
+
 @pytest.fixture
-def image() -> Image:
+def image_info() -> ImageInfo:
+    return ImageInfo(name="test", url_topic=IMAGE_URL_TOPIC)
+
+
+@pytest.fixture
+def image(image_info: ImageInfo) -> Image:
     mqtt_settings = Settings.MQTT(host="localhost")
-    image_info = ImageInfo(name="test", url_topic="topic_to_publish_url_to")
     settings = Settings(mqtt=mqtt_settings, entity=image_info)
     return Image(settings)
 
@@ -38,18 +45,19 @@ def test_required_config():
     assert image is not None
 
 
-def test_generate_config(image: Image):
+def test_generate_config(image: Image, image_info: ImageInfo):
     config = image.generate_config()
 
     assert config is not None
     # If we have defined an url_topic, check that is part of the output config
-    if image._entity.url_topic:
-        assert config["url_topic"] == image._entity.url_topic
+    if image_info.url_topic:
+        assert config["url_topic"] == image_info.url_topic
 
 
-def test_set_url(image: Image):
+def test_set_url(image: Image, image_info: ImageInfo):
     image_url = "http://camera.local/latest.jpg"
 
     with patch.object(image.mqtt_client, "publish") as mock_publish:
         image.set_url(image_url)
-        mock_publish.assert_called_with(image._entity.url_topic, image_url, retain=True)
+        assert image_info.url_topic is not None
+        mock_publish.assert_called_with(image_info.url_topic, image_url, retain=True)

@@ -201,6 +201,10 @@ class Discoverable(Generic[EntityType]):
     _entity: EntityType
 
     mqtt_client: mqtt.Client
+    _owns_mqtt_client: bool
+    _started_mqtt_connection: bool
+    _started_mqtt_loop: bool
+    _closed: bool
     wrote_configuration: bool = False
     debug: bool = False
     config_message: str = ""
@@ -233,6 +237,10 @@ class Discoverable(Generic[EntityType]):
 
         self._settings = settings
         self._entity = settings.entity
+        self._owns_mqtt_client = settings.mqtt.client is None
+        self._started_mqtt_connection = False
+        self._started_mqtt_loop = False
+        self._closed = False
 
         entity_topic_basename = clean_string(
             self._entity.object_id
@@ -382,11 +390,13 @@ wrote_configuration: {self.wrote_configuration}
             raise RuntimeError("Error while connecting to MQTT broker")
 
         logger.debug(f"Successfully connected to MQTT broker at {host}:{port}")
+        self._started_mqtt_connection = True
 
         # Start the internal network loop of the MQTT library to handle incoming
         # messages in a separate thread
         logger.debug("Starting MQTT client loop in separate thread")
         self.mqtt_client.loop_start()
+        self._started_mqtt_loop = True
         logger.debug("MQTT client loop started successfully")
 
     def _state_helper(
@@ -517,11 +527,23 @@ wrote_configuration: {self.wrote_configuration}
         """
         self._state_helper(state=state)
 
-    def __del__(self):
-        """Cleanly shutdown the internal MQTT client"""
+    def close(self) -> None:
+        """Cleanly shutdown an internally managed MQTT client."""
+        if self._closed:
+            return
+
+        self._closed = True
+
+        if not self._owns_mqtt_client:
+            return
+
         logger.debug("Shutting down MQTT client")
-        self.mqtt_client.disconnect()
-        self.mqtt_client.loop_stop()
+        if self._started_mqtt_connection:
+            self.mqtt_client.disconnect()
+            self._started_mqtt_connection = False
+        if self._started_mqtt_loop:
+            self.mqtt_client.loop_stop()
+            self._started_mqtt_loop = False
 
 
 class Subscriber(Discoverable[EntityType]):
@@ -549,6 +571,22 @@ class Subscriber(Discoverable[EntityType]):
         """
         self._has_command_callback = command_callback is not None
 
+        from ha_mqtt_discoverable.utils import clean_string
+
+        entity_topic_basename = clean_string(
+            settings.entity.object_id
+            if settings.entity.object_id is not None
+            else settings.entity.name
+        )
+        entity_topic = f"{settings.entity.component}"
+        entity_topic += (
+            f"/{clean_string(settings.entity.device.name)}"
+            if settings.entity.device
+            else ""
+        )
+        entity_topic += f"/{entity_topic_basename}"
+        self._command_topic = f"{settings.mqtt.state_prefix}/{entity_topic}/command"
+
         if command_callback is None:
             # No command callback provided - behave like Discoverable
             super().__init__(settings)
@@ -568,10 +606,6 @@ class Subscriber(Discoverable[EntityType]):
 
         # Invoke the parent init
         super().__init__(settings, on_client_connected)
-        # Define the command topic to receive commands from HA, using `hmd` topic prefix
-        self._command_topic = (
-            f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/command"
-        )
 
         # Register the user-supplied callback function with its user_data
         self.mqtt_client.user_data_set(user_data)

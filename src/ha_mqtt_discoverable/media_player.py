@@ -1,10 +1,11 @@
+import json
 import logging
 from collections.abc import Callable
 from enum import Enum
 from typing import ClassVar, TypedDict, final, override
 
 from paho.mqtt.client import Client, MQTTMessage
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ha_mqtt_discoverable import Discoverable, EntityInfo, Settings
 
@@ -171,7 +172,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         settings: Settings[MediaPlayerInfo],
         callbacks: MediaPlayerCallbacks,
         user_data: object | None = None,
-    ):
+    ) -> None:
         """
         Initialize MediaPlayer with callbacks determining supported features.
 
@@ -388,6 +389,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
     def set_muted(self, muted: bool) -> None:
         """Update mute state"""
         logger.info(f"Setting {self._entity.name} muted to {muted}")
+        # TODO: This currently validates/logs only and does not publish state.
         # Note: mute state typically published to volume topic or separate mute topic
         # For now, we'll use a simple approach
 
@@ -397,6 +399,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             raise RuntimeError("Player does not support shuffle control")
 
         logger.info(f"Setting {self._entity.name} shuffle to {shuffle}")
+        # TODO: This currently validates/logs only and does not publish state.
 
     def set_repeat(self, repeat: str) -> None:
         """Update repeat mode"""
@@ -410,6 +413,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             )
 
         logger.info(f"Setting {self._entity.name} repeat to {repeat}")
+        # TODO: This currently validates/logs only and does not publish state.
 
     @override
     def set_availability(self, availability: bool) -> None:
@@ -495,31 +499,22 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             logger.warning(f"No callback registered for command: {command_name}")
             return
 
-        try:
-            if command_name in _SIMPLE_COMMANDS:
-                logger.debug(f"Invoking simple command callback for: {command_name}")
-                self._callbacks[command_name](client, user_data, message)
-            else:
-                # Payload-based commands need parsing
-                parsed_payload = self._parse_command_payload(command_name, payload)
-                logger.debug(f"Parsed payload for {command_name}: {parsed_payload}")
-                logger.debug(
-                    f"Invoking payload-based callback for command: {command_name}"
-                )
-                self._callbacks[command_name](
-                    parsed_payload, client, user_data, message
-                )
+        if command_name in _SIMPLE_COMMANDS:
+            logger.debug(f"Invoking simple command callback for: {command_name}")
+            self._callbacks[command_name](client, user_data, message)
+        else:
+            # Payload-based commands need parsing
+            parsed_payload = self._parse_command_payload(command_name, payload)
+            logger.debug(f"Parsed payload for {command_name}: {parsed_payload}")
+            logger.debug(f"Invoking payload-based callback for command: {command_name}")
+            self._callbacks[command_name](parsed_payload, client, user_data, message)
 
-            logger.debug(f"Successfully executed callback for {command_name}")
-        except Exception:
-            logger.exception(f"Error executing callback for {command_name}")
+        logger.debug(f"Successfully executed callback for {command_name}")
 
     def _parse_command_payload(
         self, command: str, payload: str
     ) -> ParsedCommandPayload:
         """Parse command payload based on command type"""
-        import json
-
         logger.debug(f"Parsing payload for command '{command}': {payload}")
 
         match command:
@@ -557,10 +552,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
                         f"Parsed play_media JSON for {command}: {play_media_payload}"
                     )
                     return play_media_payload
-                except json.JSONDecodeError:
-                    logger.exception(f"Invalid JSON payload for {command}")
-                    return None
-                except Exception:
+                except (json.JSONDecodeError, ValidationError):
                     logger.exception(f"Invalid play_media payload for {command}")
                     return None
 

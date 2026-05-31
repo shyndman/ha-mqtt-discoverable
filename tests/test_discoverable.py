@@ -14,12 +14,14 @@
 #    limitations under the License.
 #
 import asyncio
+from collections.abc import Iterator
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from typing import cast, override
 
 import pytest
+import paho.mqtt.client as mqtt
 from paho.mqtt.client import Client, ConnectFlags, MQTTMessage, MQTTv5
 from paho.mqtt.enums import CallbackAPIVersion, MQTTErrorCode
 from paho.mqtt.properties import Properties
@@ -68,23 +70,69 @@ class TrackingClient(Client):
         return super().loop_stop()
 
 
+class InlineTrackingClient(TrackingClient):
+    connect_called: int
+    disconnect_called: bool
+    disconnect_call_count: int
+    loop_start_called: int
+    loop_stop_called: bool
+    loop_stop_call_count: int
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.connect_called = 0
+        self.disconnect_call_count = 0
+        self.loop_start_called = 0
+        self.loop_stop_call_count = 0
+
+    @override
+    def connect(self, *args: object, **kwargs: object) -> MQTTErrorCode:
+        self.connect_called += 1
+        return MQTTErrorCode.MQTT_ERR_SUCCESS
+
+    @override
+    def disconnect(
+        self,
+        reasoncode: ReasonCode | None = None,
+        properties: Properties | None = None,
+    ) -> MQTTErrorCode:
+        self.disconnect_call_count += 1
+        self.disconnect_called = True
+        return MQTTErrorCode.MQTT_ERR_SUCCESS
+
+    @override
+    def loop_start(self) -> MQTTErrorCode:
+        self.loop_start_called += 1
+        return MQTTErrorCode.MQTT_ERR_SUCCESS
+
+    @override
+    def loop_stop(self) -> MQTTErrorCode:
+        self.loop_stop_call_count += 1
+        self.loop_stop_called = True
+        return MQTTErrorCode.MQTT_ERR_SUCCESS
+
+
 @pytest.fixture
-def discoverable() -> DiscoverableHarness:
+def discoverable() -> Iterator[DiscoverableHarness]:
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    return DiscoverableHarness(settings)
+    instance = DiscoverableHarness(settings)
+    yield instance
+    instance.close()
 
 
 @pytest.fixture
-def discoverable_availability() -> DiscoverableHarness:
+def discoverable_availability() -> Iterator[DiscoverableHarness]:
     """Return an instance of Discoverable configured with `manual_availability`"""
     mqtt_settings = Settings.MQTT(host="localhost")
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(
         mqtt=mqtt_settings, entity=sensor_info, manual_availability=True
     )
-    return DiscoverableHarness(settings)
+    instance = DiscoverableHarness(settings)
+    yield instance
+    instance.close()
 
 
 def test_required_config():
@@ -92,7 +140,10 @@ def test_required_config():
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     d = Discoverable(settings)
-    assert d is not None
+    try:
+        assert d is not None
+    finally:
+        d.close()
 
 
 def test_missing_config():
@@ -120,8 +171,11 @@ def test_custom_on_connect():
         is_connected.set()
 
     d = DiscoverableHarness(settings, custom_callback)
-    d.connect_client()
-    assert is_connected.wait(5)
+    try:
+        d.connect_client()
+        assert is_connected.wait(5)
+    finally:
+        d.close()
 
 
 def test_custom_on_connect_must_be_called(monkeypatch: pytest.MonkeyPatch):
@@ -155,9 +209,12 @@ def test_mqtt_topics():
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     d = Discoverable[EntityInfo](settings)
-    assert d.config_topic == "homeassistant/binary_sensor/test/config"
-    assert d.state_topic == "hmd/binary_sensor/test/state"
-    assert d.attributes_topic == "hmd/binary_sensor/test/attributes"
+    try:
+        assert d.config_topic == "homeassistant/binary_sensor/test/config"
+        assert d.state_topic == "hmd/binary_sensor/test/state"
+        assert d.attributes_topic == "hmd/binary_sensor/test/attributes"
+    finally:
+        d.close()
 
 
 def test_mqtt_topics_with_device():
@@ -168,9 +225,12 @@ def test_mqtt_topics_with_device():
     )
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     d = Discoverable[EntityInfo](settings)
-    assert d.config_topic == "homeassistant/binary_sensor/test_device/test/config"
-    assert d.state_topic == "hmd/binary_sensor/test_device/test/state"
-    assert d.attributes_topic == "hmd/binary_sensor/test_device/test/attributes"
+    try:
+        assert d.config_topic == "homeassistant/binary_sensor/test_device/test/config"
+        assert d.state_topic == "hmd/binary_sensor/test_device/test/state"
+        assert d.attributes_topic == "hmd/binary_sensor/test_device/test/attributes"
+    finally:
+        d.close()
 
 
 def test_generate_config(discoverable: DiscoverableHarness):
@@ -251,7 +311,10 @@ def test_name_with_space():
     sensor_info = EntityInfo(name="Name with space", component="binary_sensor")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     d = Discoverable[EntityInfo](settings)
-    d.write_config()
+    try:
+        d.write_config()
+    finally:
+        d.close()
 
 
 def test_custom_object_id():
@@ -261,7 +324,10 @@ def test_custom_object_id():
     )
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     d = Discoverable[EntityInfo](settings)
-    d.write_config()
+    try:
+        d.write_config()
+    finally:
+        d.close()
 
 
 def test_str(discoverable: DiscoverableHarness):
@@ -348,8 +414,28 @@ def test_publish_async(discoverable: DiscoverableHarness):
     assert received_message.wait(1)
 
 
-def test_disconnect_client():
-    """Test that the __del__ method disconnects from the broker"""
+def test_close_owned_client_is_idempotent(monkeypatch: pytest.MonkeyPatch):
+    tracking_client = InlineTrackingClient()
+    sensor_info = EntityInfo(name="test", component="binary_sensor")
+    settings = Settings(mqtt=Settings.MQTT(host="localhost"), entity=sensor_info)
+
+    def client_factory(*_args: object, **_kwargs: object) -> InlineTrackingClient:
+        return tracking_client
+
+    monkeypatch.setattr(mqtt, "Client", client_factory)
+
+    discoverable = DiscoverableHarness(settings)
+
+    discoverable.close()
+    discoverable.close()
+
+    assert tracking_client.connect_called == 1
+    assert tracking_client.disconnect_call_count == 1
+    assert tracking_client.loop_start_called == 1
+    assert tracking_client.loop_stop_call_count == 1
+
+
+def test_close_skips_injected_client():
     tracking_client = TrackingClient()
     sensor_info = EntityInfo(name="test", component="binary_sensor")
     settings = Settings(
@@ -358,10 +444,11 @@ def test_disconnect_client():
     )
 
     discoverable = Discoverable[EntityInfo](settings)
-    del discoverable
+    discoverable.close()
+    discoverable.close()
 
-    assert tracking_client.disconnect_called is True
-    assert tracking_client.loop_stop_called is True
+    assert tracking_client.disconnect_called is False
+    assert tracking_client.loop_stop_called is False
 
 
 def test_set_availability_topic(

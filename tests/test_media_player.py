@@ -15,7 +15,10 @@
 #
 
 import time
+from collections.abc import Iterator
 from threading import Event
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from paho.mqtt import publish
@@ -35,6 +38,15 @@ from ha_mqtt_discoverable.media_player import (
 
 
 class MediaPlayerHarness(MediaPlayer):
+    def __init__(
+        self,
+        settings: Settings[MediaPlayerInfo],
+        callbacks: MediaPlayerCallbacks,
+        user_data: object | None = None,
+    ) -> None:
+        super().__init__(settings, callbacks, user_data)
+        _ACTIVE_PLAYERS.append(self)
+
     @property
     def topics(self) -> dict[str, str]:
         return self._topics
@@ -49,6 +61,17 @@ class MediaPlayerHarness(MediaPlayer):
 
     def parse_command_payload(self, command: str, payload: str) -> ParsedCommandPayload:
         return self._parse_command_payload(command, payload)
+
+    def handle_command(
+        self,
+        client: Client,
+        user_data: object,
+        message: MQTTMessage,
+    ) -> None:
+        self._command_callback_handler(client, user_data, message)
+
+
+_ACTIVE_PLAYERS: list[MediaPlayerHarness] = []
 
 
 def noop_command_callback(
@@ -104,10 +127,31 @@ def noop_play_media_callback(
     return None
 
 
+def make_message(topic: str, payload: str | bytes) -> MQTTMessage:
+    return cast(
+        MQTTMessage,
+        cast(
+            object,
+            SimpleNamespace(
+                topic=topic,
+                payload=payload if isinstance(payload, bytes) else payload.encode(),
+            ),
+        ),
+    )
+
+
 @pytest.fixture
 def mqtt_settings() -> Settings.MQTT:
     """Standard MQTT settings for testing"""
     return Settings.MQTT(host="localhost")
+
+
+@pytest.fixture(autouse=True)
+def close_media_players() -> Iterator[None]:
+    yield
+
+    while _ACTIVE_PLAYERS:
+        _ACTIVE_PLAYERS.pop().close()
 
 
 @pytest.fixture
@@ -802,6 +846,26 @@ def test_set_media_metadata():
     player.set_media_image_remotely_accessible(False)
 
 
+def test_set_muted_is_log_only_and_does_not_publish(monkeypatch: pytest.MonkeyPatch):
+    """Test that set_muted currently logs only and does not publish state"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    entity_info = MediaPlayerInfo(name="test_muted")
+    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
+    player = MediaPlayerHarness(settings, {})
+
+    publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def record_publish(*args: object, **kwargs: object) -> None:
+        publish_calls.append((args, kwargs))
+
+    monkeypatch.setattr(player.mqtt_client, "publish", record_publish)
+
+    player.set_muted(True)
+    player.set_muted(False)
+
+    assert publish_calls == []
+
+
 def test_set_shuffle_without_support():
     """Test setting shuffle when not supported"""
     mqtt_settings = Settings.MQTT(host="localhost")
@@ -813,8 +877,10 @@ def test_set_shuffle_without_support():
         player.set_shuffle(True)
 
 
-def test_set_shuffle_with_support():
-    """Test setting shuffle when supported"""
+def test_set_shuffle_with_support_does_not_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that supported shuffle currently validates/logs only"""
     mqtt_settings = Settings.MQTT(host="localhost")
     entity_info = MediaPlayerInfo(name="test_shuffle_supported")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
@@ -824,9 +890,17 @@ def test_set_shuffle_with_support():
     }
     player = MediaPlayerHarness(settings, callbacks)
 
-    # Should not raise exceptions
+    publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def record_publish(*args: object, **kwargs: object) -> None:
+        publish_calls.append((args, kwargs))
+
+    monkeypatch.setattr(player.mqtt_client, "publish", record_publish)
+
     player.set_shuffle(True)
     player.set_shuffle(False)
+
+    assert publish_calls == []
 
 
 def test_set_repeat_without_support():
@@ -840,8 +914,10 @@ def test_set_repeat_without_support():
         player.set_repeat("all")
 
 
-def test_set_repeat_with_support():
-    """Test setting repeat when supported"""
+def test_set_repeat_with_support_validates_but_does_not_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that supported repeat currently validates/logs only"""
     mqtt_settings = Settings.MQTT(host="localhost")
     entity_info = MediaPlayerInfo(name="test_repeat_supported")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
@@ -851,9 +927,18 @@ def test_set_repeat_with_support():
     }
     player = MediaPlayerHarness(settings, callbacks)
 
+    publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def record_publish(*args: object, **kwargs: object) -> None:
+        publish_calls.append((args, kwargs))
+
+    monkeypatch.setattr(player.mqtt_client, "publish", record_publish)
+
     valid_modes = ["off", "all", "one"]
     for mode in valid_modes:
         player.set_repeat(mode)
+
+    assert publish_calls == []
 
 
 def test_set_repeat_invalid_mode():
@@ -1279,7 +1364,7 @@ def test_player_with_device_end_to_end():
 
 
 def test_error_handling_in_command_flow():
-    """Test error handling during command processing"""
+    """Test callback errors surface from the command handler"""
     mqtt_settings = Settings.MQTT(host="localhost")
     entity_info = MediaPlayerInfo(name="error_test")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
@@ -1297,16 +1382,10 @@ def test_error_handling_in_command_flow():
     }
 
     player = MediaPlayerHarness(settings, callbacks)
-    time.sleep(0.5)
+    message = make_message(player.topics[MediaPlayerTopics.PLAY], "PLAY")
 
-    # Send command - should not crash the player
-    play_topic = player.topics[MediaPlayerTopics.PLAY]
-    publish.single(play_topic, "PLAY", hostname="localhost")
-
-    time.sleep(0.5)  # Allow error processing
-
-    # Player should still be functional for state updates
-    player.set_state("idle")  # Should not raise exception
+    with pytest.raises(ValueError, match="Test error in callback"):
+        player.handle_command(player.mqtt_client, object(), message)
 
 
 def test_rapid_command_sequence():
@@ -1474,6 +1553,44 @@ def test_parse_command_payload_edge_cases():
     assert (
         player.parse_command_payload(MediaPlayerTopics.SHUFFLE_SET, "1") is False
     )  # Only "ON" is True
+
+
+def test_parse_command_payload_play_media_expected_failures_return_none():
+    """Test play_media parsing returns None for invalid JSON or invalid payloads"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    entity_info = MediaPlayerInfo(name="parse_play_media_invalid_test")
+    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
+    player = MediaPlayerHarness(settings, {})
+
+    assert player.parse_command_payload(MediaPlayerTopics.PLAY_MEDIA, "{") is None
+    assert (
+        player.parse_command_payload(
+            MediaPlayerTopics.PLAY_MEDIA,
+            '{"media_type": "music"}',
+        )
+        is None
+    )
+
+
+def test_parse_command_payload_play_media_unexpected_error_surfaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test play_media parsing re-raises unexpected parser failures"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    entity_info = MediaPlayerInfo(name="parse_play_media_error_test")
+    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
+    player = MediaPlayerHarness(settings, {})
+
+    def raise_unexpected(_payload: str) -> PlayMediaPayload:
+        raise RuntimeError("unexpected parser failure")
+
+    monkeypatch.setattr(PlayMediaPayload, "model_validate_json", raise_unexpected)
+
+    with pytest.raises(RuntimeError, match="unexpected parser failure"):
+        player.parse_command_payload(
+            MediaPlayerTopics.PLAY_MEDIA,
+            '{"media_type": "music", "media_id": "123"}',
+        )
 
 
 def test_payload_parsing_integration_volume():

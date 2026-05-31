@@ -17,465 +17,47 @@ import logging
 import ssl
 from collections.abc import Callable
 from importlib import metadata
-from typing import Any, Generic, Optional, TypeVar, cast
+from typing import ClassVar, Generic, Protocol, TypeVar, cast, override
 
 import paho.mqtt.client as mqtt
 from paho.mqtt.client import MQTTMessageInfo
 from paho.mqtt.enums import CallbackAPIVersion
+from paho.mqtt.properties import Properties
+from paho.mqtt.reasoncodes import ReasonCode
 from pydantic import BaseModel, ConfigDict, model_validator
+
+from ha_mqtt_discoverable._config import (
+    CONFIGURATION_KEY_NAMES as _CONFIGURATION_KEY_NAMES,
+)
 
 # Read version from the package metadata
 __version__ = metadata.version(cast(str, __package__))
 
 logger = logging.getLogger(__name__)
 
-CONFIGURATION_KEY_NAMES = {
-    "act_t": "action_topic",
-    "act_tpl": "action_template",
-    "action_template": "act_tpl",
-    "action_topic": "act_t",
-    "atype": "automation_type",
-    "automation_type": "atype",
-    "aux_cmd_t": "aux_command_topic",
-    "aux_command_topic": "aux_cmd_t",
-    "aux_stat_t": "aux_state_topic",
-    "aux_stat_tpl": "aux_state_template",
-    "aux_state_template": "aux_stat_tpl",
-    "aux_state_topic": "aux_stat_t",
-    "av_tones": "available_tones",
-    "availability": "avty",
-    "availability_mode": "avty_mode",
-    "availability_template": "avty_tpl",
-    "availability_topic": "avty_t",
-    "available_tones": "av_tones",
-    "avty": "availability",
-    "avty_mode": "availability_mode",
-    "avty_t": "availability_topic",
-    "avty_tpl": "availability_template",
-    "away_mode_cmd_t": "away_mode_command_topic",
-    "away_mode_command_topic": "away_mode_cmd_t",
-    "away_mode_stat_t": "away_mode_state_topic",
-    "away_mode_stat_tpl": "away_mode_state_template",
-    "away_mode_state_template": "away_mode_stat_tpl",
-    "away_mode_state_topic": "away_mode_stat_t",
-    "b_tpl": "blue_template",
-    "bat_lev_t": "battery_level_topic",
-    "bat_lev_tpl": "battery_level_template",
-    "battery_level_template": "bat_lev_tpl",
-    "battery_level_topic": "bat_lev_t",
-    "blue_template": "b_tpl",
-    "bri_cmd_t": "brightness_command_topic",
-    "bri_cmd_tpl": "brightness_command_template",
-    "bri_scl": "brightness_scale",
-    "bri_stat_t": "brightness_state_topic",
-    "bri_tpl": "brightness_template",
-    "bri_val_tpl": "brightness_value_template",
-    "brightness_command_template": "bri_cmd_tpl",
-    "brightness_command_topic": "bri_cmd_t",
-    "brightness_scale": "bri_scl",
-    "brightness_state_topic": "bri_stat_t",
-    "brightness_template": "bri_tpl",
-    "brightness_value_template": "bri_val_tpl",
-    "charging_template": "chrg_tpl",
-    "charging_topic": "chrg_t",
-    "chrg_t": "charging_topic",
-    "chrg_tpl": "charging_template",
-    "cleaning_template": "cln_tpl",
-    "cleaning_topic": "cln_t",
-    "cln_t": "cleaning_topic",
-    "cln_tpl": "cleaning_template",
-    "clr_temp_cmd_t": "color_temp_command_topic",
-    "clr_temp_cmd_tpl": "color_temp_command_template",
-    "clr_temp_stat_t": "color_temp_state_topic",
-    "clr_temp_tpl": "color_temp_template",
-    "clr_temp_val_tpl": "color_temp_value_template",
-    "cmd_off_tpl": "command_off_template",
-    "cmd_on_tpl": "command_on_template",
-    "cmd_t": "command_topic",
-    "cmd_tpl": "command_template",
-    "cod_arm_req": "code_arm_required",
-    "cod_dis_req": "code_disarm_required",
-    "cod_trig_req": "code_trigger_required",
-    "code_arm_required": "cod_arm_req",
-    "code_disarm_required": "cod_dis_req",
-    "code_trigger_required": "cod_trig_req",
-    "color_temp_command_template": "clr_temp_cmd_tpl",
-    "color_temp_command_topic": "clr_temp_cmd_t",
-    "color_temp_state_topic": "clr_temp_stat_t",
-    "color_temp_template": "clr_temp_tpl",
-    "color_temp_value_template": "clr_temp_val_tpl",
-    "command_off_template": "cmd_off_tpl",
-    "command_on_template": "cmd_on_tpl",
-    "command_template": "cmd_tpl",
-    "command_topic": "cmd_t",
-    "curr_temp_t": "current_temperature_topic",
-    "curr_temp_tpl": "current_temperature_template",
-    "current_temperature_template": "curr_temp_tpl",
-    "current_temperature_topic": "curr_temp_t",
-    "dev": "device",
-    "dev_cla": "device_class",
-    "device": "dev",
-    "device_class": "dev_cla",
-    "dock_t": "docked_topic",
-    "dock_tpl": "docked_template",
-    "docked_template": "dock_tpl",
-    "docked_topic": "dock_t",
-    "e": "encoding",
-    "effect_command_template": "fx_cmd_tpl",
-    "effect_command_topic": "fx_cmd_t",
-    "effect_list": "fx_list",
-    "effect_state_topic": "fx_stat_t",
-    "effect_template": "fx_tpl",
-    "effect_value_template": "fx_val_tpl",
-    "encoding": "e",
-    "ent_cat": "entity_category",
-    "ent_pic": "entity_picture",
-    "entity_category": "ent_cat",
-    "entity_picture": "ent_pic",
-    "err_t": "error_topic",
-    "err_tpl": "error_template",
-    "error_template": "err_tpl",
-    "error_topic": "err_t",
-    "exp_aft": "expire_after",
-    "expire_after": "exp_aft",
-    "fan_mode_cmd_t": "fan_mode_command_topic",
-    "fan_mode_cmd_tpl": "fan_mode_command_template",
-    "fan_mode_command_template": "fan_mode_cmd_tpl",
-    "fan_mode_command_topic": "fan_mode_cmd_t",
-    "fan_mode_stat_t": "fan_mode_state_topic",
-    "fan_mode_stat_tpl": "fan_mode_state_template",
-    "fan_mode_state_template": "fan_mode_stat_tpl",
-    "fan_mode_state_topic": "fan_mode_stat_t",
-    "fan_speed_list": "fanspd_lst",
-    "fan_speed_template": "fanspd_tpl",
-    "fan_speed_topic": "fanspd_t",
-    "fanspd_lst": "fan_speed_list",
-    "fanspd_t": "fan_speed_topic",
-    "fanspd_tpl": "fan_speed_template",
-    "flash_time_long": "flsh_tlng",
-    "flash_time_short": "flsh_tsht",
-    "flsh_tlng": "flash_time_long",
-    "flsh_tsht": "flash_time_short",
-    "force_update": "frc_upd",
-    "frc_upd": "force_update",
-    "fx_cmd_t": "effect_command_topic",
-    "fx_cmd_tpl": "effect_command_template",
-    "fx_list": "effect_list",
-    "fx_stat_t": "effect_state_topic",
-    "fx_tpl": "effect_template",
-    "fx_val_tpl": "effect_value_template",
-    "g_tpl": "green_template",
-    "green_template": "g_tpl",
-    "hold_cmd_t": "hold_command_topic",
-    "hold_cmd_tpl": "hold_command_template",
-    "hold_command_template": "hold_cmd_tpl",
-    "hold_command_topic": "hold_cmd_t",
-    "hold_stat_t": "hold_state_topic",
-    "hold_stat_tpl": "hold_state_template",
-    "hold_state_template": "hold_stat_tpl",
-    "hold_state_topic": "hold_stat_t",
-    "hs_cmd_t": "hs_command_topic",
-    "hs_command_topic": "hs_cmd_t",
-    "hs_stat_t": "hs_state_topic",
-    "hs_state_topic": "hs_stat_t",
-    "hs_val_tpl": "hs_value_template",
-    "hs_value_template": "hs_val_tpl",
-    "hum_cmd_t": "target_humidity_command_topic",
-    "hum_cmd_tpl": "target_humidity_command_template",
-    "hum_stat_t": "target_humidity_state_topic",
-    "hum_stat_tpl": "target_humidity_state_template",
-    "ic": "icon",
-    "icon": "ic",
-    "init": "initial",
-    "initial": "init",
-    "json_attr": "json_attributes",
-    "json_attr_t": "json_attributes_topic",
-    "json_attr_tpl": "json_attributes_template",
-    "json_attributes": "json_attr",
-    "json_attributes_template": "json_attr_tpl",
-    "json_attributes_topic": "json_attr_t",
-    "lat_ver_t": "latest_version_topic",
-    "latest_version_topic": "lat_ver_t",
-    "max_hum": "max_humidity",
-    "max_humidity": "max_hum",
-    "max_mireds": "max_mirs",
-    "max_mirs": "max_mireds",
-    "max_temp": "max_temp",
-    "min_hum": "min_humidity",
-    "min_humidity": "min_hum",
-    "min_mireds": "min_mirs",
-    "min_mirs": "min_mireds",
-    "min_temp": "min_temp",
-    "mode_cmd_t": "mode_command_topic",
-    "mode_cmd_tpl": "mode_command_template",
-    "mode_command_template": "mode_cmd_tpl",
-    "mode_command_topic": "mode_cmd_t",
-    "mode_stat_t": "mode_state_topic",
-    "mode_stat_tpl": "mode_state_template",
-    "mode_state_template": "mode_stat_tpl",
-    "mode_state_topic": "mode_stat_t",
-    "modes": "modes",
-    "name": "name",
-    "obj_id": "object_id",
-    "object_id": "obj_id",
-    "off_delay": "off_dly",
-    "off_dly": "off_delay",
-    "on_cmd_type": "on_command_type",
-    "on_command_type": "on_cmd_type",
-    "opt": "optimistic",
-    "optimistic": "opt",
-    "osc_cmd_t": "oscillation_command_topic",
-    "osc_cmd_tpl": "oscillation_command_template",
-    "osc_stat_t": "oscillation_state_topic",
-    "osc_val_tpl": "oscillation_value_template",
-    "oscillation_command_template": "osc_cmd_tpl",
-    "oscillation_command_topic": "osc_cmd_t",
-    "oscillation_state_topic": "osc_stat_t",
-    "oscillation_value_template": "osc_val_tpl",
-    "payload": "pl",
-    "payload_arm_away": "pl_arm_away",
-    "payload_arm_custom_bypass": "pl_arm_custom_b",
-    "payload_arm_home": "pl_arm_home",
-    "payload_arm_night": "pl_arm_nite",
-    "payload_available": "pl_avail",
-    "payload_clean_spot": "pl_cln_sp",
-    "payload_close": "pl_cls",
-    "payload_disarm": "pl_disarm",
-    "payload_home": "pl_home",
-    "payload_install": "pl_inst",
-    "payload_locate": "pl_loc",
-    "payload_lock": "pl_lock",
-    "payload_not_available": "pl_not_avail",
-    "payload_not_home": "pl_not_home",
-    "payload_off": "pl_off",
-    "payload_on": "pl_on",
-    "payload_open": "pl_open",
-    "payload_oscillation_off": "pl_osc_off",
-    "payload_oscillation_on": "pl_osc_on",
-    "payload_pause": "pl_paus",
-    "payload_reset_humidity": "pl_rst_hum",
-    "payload_reset_mode": "pl_rst_mode",
-    "payload_reset_percentage": "pl_rst_pct",
-    "payload_reset_preset_mode": "pl_rst_pr_mode",
-    "payload_return_to_base": "pl_ret",
-    "payload_start": "pl_strt",
-    "payload_start_pause": "pl_stpa",
-    "payload_stop": "pl_stop",
-    "payload_trigger": "pl_trig",
-    "payload_turn_off": "pl_toff",
-    "payload_turn_on": "pl_ton",
-    "payload_unlock": "pl_unlk",
-    "pct_cmd_t": "percentage_command_topic",
-    "pct_cmd_tpl": "percentage_command_template",
-    "pct_stat_t": "percentage_state_topic",
-    "pct_val_tpl": "percentage_value_template",
-    "percentage_command_template": "pct_cmd_tpl",
-    "percentage_command_topic": "pct_cmd_t",
-    "percentage_state_topic": "pct_stat_t",
-    "percentage_value_template": "pct_val_tpl",
-    "pl": "payload",
-    "pl_arm_away": "payload_arm_away",
-    "pl_arm_custom_b": "payload_arm_custom_bypass",
-    "pl_arm_home": "payload_arm_home",
-    "pl_arm_nite": "payload_arm_night",
-    "pl_avail": "payload_available",
-    "pl_cln_sp": "payload_clean_spot",
-    "pl_cls": "payload_close",
-    "pl_disarm": "payload_disarm",
-    "pl_home": "payload_home",
-    "pl_inst": "payload_install",
-    "pl_loc": "payload_locate",
-    "pl_lock": "payload_lock",
-    "pl_not_avail": "payload_not_available",
-    "pl_not_home": "payload_not_home",
-    "pl_off": "payload_off",
-    "pl_on": "payload_on",
-    "pl_open": "payload_open",
-    "pl_osc_off": "payload_oscillation_off",
-    "pl_osc_on": "payload_oscillation_on",
-    "pl_paus": "payload_pause",
-    "pl_ret": "payload_return_to_base",
-    "pl_rst_hum": "payload_reset_humidity",
-    "pl_rst_mode": "payload_reset_mode",
-    "pl_rst_pct": "payload_reset_percentage",
-    "pl_rst_pr_mode": "payload_reset_preset_mode",
-    "pl_stop": "payload_stop",
-    "pl_stpa": "payload_start_pause",
-    "pl_strt": "payload_start",
-    "pl_toff": "payload_turn_off",
-    "pl_ton": "payload_turn_on",
-    "pl_trig": "payload_trigger",
-    "pl_unlk": "payload_unlock",
-    "pos_clsd": "position_closed",
-    "pos_open": "position_open",
-    "pos_t": "position_topic",
-    "pos_tpl": "position_template",
-    "position_closed": "pos_clsd",
-    "position_open": "pos_open",
-    "position_template": "pos_tpl",
-    "position_topic": "pos_t",
-    "pow_cmd_t": "power_command_topic",
-    "pow_stat_t": "power_state_topic",
-    "pow_stat_tpl": "power_state_template",
-    "power_command_topic": "pow_cmd_t",
-    "power_state_template": "pow_stat_tpl",
-    "power_state_topic": "pow_stat_t",
-    "pr_mode_cmd_t": "preset_mode_command_topic",
-    "pr_mode_cmd_tpl": "preset_mode_command_template",
-    "pr_mode_stat_t": "preset_mode_state_topic",
-    "pr_mode_val_tpl": "preset_mode_value_template",
-    "pr_modes": "preset_modes",
-    "preset_mode_command_template": "pr_mode_cmd_tpl",
-    "preset_mode_command_topic": "pr_mode_cmd_t",
-    "preset_mode_state_topic": "pr_mode_stat_t",
-    "preset_mode_value_template": "pr_mode_val_tpl",
-    "preset_modes": "pr_modes",
-    "r_tpl": "red_template",
-    "red_template": "r_tpl",
-    "rel_sum": "release_summary",
-    "rel_url": "release_url",
-    "release_summary": "rel_sum",
-    "release_url": "rel_url",
-    "ret": "retain",
-    "retain": "ret",
-    "rgb_cmd_t": "rgb_command_topic",
-    "rgb_cmd_tpl": "rgb_command_template",
-    "rgb_command_template": "rgb_cmd_tpl",
-    "rgb_command_topic": "rgb_cmd_t",
-    "rgb_stat_t": "rgb_state_topic",
-    "rgb_state_topic": "rgb_stat_t",
-    "rgb_val_tpl": "rgb_value_template",
-    "rgb_value_template": "rgb_val_tpl",
-    "send_cmd_t": "send_command_topic",
-    "send_command_topic": "send_cmd_t",
-    "send_if_off": "send_if_off",
-    "set_fan_spd_t": "set_fan_speed_topic",
-    "set_fan_speed_topic": "set_fan_spd_t",
-    "set_pos_t": "set_position_topic",
-    "set_pos_tpl": "set_position_template",
-    "set_position_template": "set_pos_tpl",
-    "set_position_topic": "set_pos_t",
-    "source_type": "src_type",
-    "spd_rng_max": "speed_range_max",
-    "spd_rng_min": "speed_range_min",
-    "speed_range_max": "spd_rng_max",
-    "speed_range_min": "spd_rng_min",
-    "src_type": "source_type",
-    "stat_cla": "state_class",
-    "stat_closing": "state_closing",
-    "stat_clsd": "state_closed",
-    "stat_locked": "state_locked",
-    "stat_off": "state_off",
-    "stat_on": "state_on",
-    "stat_open": "state_open",
-    "stat_opening": "state_opening",
-    "stat_stopped": "state_stopped",
-    "stat_t": "state_topic",
-    "stat_tpl": "state_template",
-    "stat_unlocked": "state_unlocked",
-    "stat_val_tpl": "state_value_template",
-    "state_class": "stat_cla",
-    "state_closed": "stat_clsd",
-    "state_closing": "stat_closing",
-    "state_locked": "stat_locked",
-    "state_off": "stat_off",
-    "state_on": "stat_on",
-    "state_open": "stat_open",
-    "state_opening": "stat_opening",
-    "state_stopped": "stat_stopped",
-    "state_template": "stat_tpl",
-    "state_topic": "stat_t",
-    "state_unlocked": "stat_unlocked",
-    "state_value_template": "stat_val_tpl",
-    "stype": "subtype",
-    "subtype": "stype",
-    "sup_duration": "support_duration",
-    "sup_feat": "supported_features",
-    "sup_off": "supported_turn_off",
-    "sup_vol": "support_volume_set",
-    "support_duration": "sup_duration",
-    "support_volume_set": "sup_vol",
-    "supported_features": "sup_feat",
-    "supported_turn_off": "sup_off",
-    "swing_mode_cmd_t": "swing_mode_command_topic",
-    "swing_mode_cmd_tpl": "swing_mode_command_template",
-    "swing_mode_command_template": "swing_mode_cmd_tpl",
-    "swing_mode_command_topic": "swing_mode_cmd_t",
-    "swing_mode_stat_t": "swing_mode_state_topic",
-    "swing_mode_stat_tpl": "swing_mode_state_template",
-    "swing_mode_state_template": "swing_mode_stat_tpl",
-    "swing_mode_state_topic": "swing_mode_stat_t",
-    "t": "topic",
-    "target_humidity_command_template": "hum_cmd_tpl",
-    "target_humidity_command_topic": "hum_cmd_t",
-    "target_humidity_state_template": "hum_stat_tpl",
-    "target_humidity_state_topic": "hum_stat_t",
-    "temp_cmd_t": "temperature_command_topic",
-    "temp_cmd_tpl": "temperature_command_template",
-    "temp_hi_cmd_t": "temperature_high_command_topic",
-    "temp_hi_cmd_tpl": "temperature_high_command_template",
-    "temp_hi_stat_t": "temperature_high_state_topic",
-    "temp_hi_stat_tpl": "temperature_high_state_template",
-    "temp_lo_cmd_t": "temperature_low_command_topic",
-    "temp_lo_cmd_tpl": "temperature_low_command_template",
-    "temp_lo_stat_t": "temperature_low_state_topic",
-    "temp_lo_stat_tpl": "temperature_low_state_template",
-    "temp_stat_t": "temperature_state_topic",
-    "temp_stat_tpl": "temperature_state_template",
-    "temp_unit": "temperature_unit",
-    "temperature_command_template": "temp_cmd_tpl",
-    "temperature_command_topic": "temp_cmd_t",
-    "temperature_high_command_template": "temp_hi_cmd_tpl",
-    "temperature_high_command_topic": "temp_hi_cmd_t",
-    "temperature_high_state_template": "temp_hi_stat_tpl",
-    "temperature_high_state_topic": "temp_hi_stat_t",
-    "temperature_low_command_template": "temp_lo_cmd_tpl",
-    "temperature_low_command_topic": "temp_lo_cmd_t",
-    "temperature_low_state_template": "temp_lo_stat_tpl",
-    "temperature_low_state_topic": "temp_lo_stat_t",
-    "temperature_state_template": "temp_stat_tpl",
-    "temperature_state_topic": "temp_stat_t",
-    "temperature_unit": "temp_unit",
-    "tilt_closed_value": "tilt_clsd_val",
-    "tilt_clsd_val": "tilt_closed_value",
-    "tilt_cmd_t": "tilt_command_topic",
-    "tilt_cmd_tpl": "tilt_command_template",
-    "tilt_command_template": "tilt_cmd_tpl",
-    "tilt_command_topic": "tilt_cmd_t",
-    "tilt_inv_stat": "tilt_invert_state",
-    "tilt_invert_state": "tilt_inv_stat",
-    "tilt_max": "tilt_max",
-    "tilt_min": "tilt_min",
-    "tilt_opened_value": "tilt_opnd_val",
-    "tilt_opnd_val": "tilt_opened_value",
-    "tilt_opt": "tilt_optimistic",
-    "tilt_optimistic": "tilt_opt",
-    "tilt_status_t": "tilt_status_topic",
-    "tilt_status_template": "tilt_status_tpl",
-    "tilt_status_topic": "tilt_status_t",
-    "tilt_status_tpl": "tilt_status_template",
-    "topic": "t",
-    "uniq_id": "unique_id",
-    "unique_id": "uniq_id",
-    "unit_of_meas": "unit_of_measurement",
-    "unit_of_measurement": "unit_of_meas",
-    "val_tpl": "value_template",
-    "value_template": "val_tpl",
-    "whit_val_cmd_t": "white_value_command_topic",
-    "whit_val_scl": "white_value_scale",
-    "whit_val_stat_t": "white_value_state_topic",
-    "whit_val_tpl": "white_value_template",
-    "white_value_command_topic": "whit_val_cmd_t",
-    "white_value_scale": "whit_val_scl",
-    "white_value_state_topic": "whit_val_stat_t",
-    "white_value_template": "whit_val_tpl",
-    "xy_cmd_t": "xy_command_topic",
-    "xy_command_topic": "xy_cmd_t",
-    "xy_stat_t": "xy_state_topic",
-    "xy_state_topic": "xy_stat_t",
-    "xy_val_tpl": "xy_value_template",
-    "xy_value_template": "xy_val_tpl",
-}
+
+type ValidatorValues = dict[str, object]
+type OnConnectCallback = Callable[..., None]
+type MessageCallback[UserDataT] = Callable[
+    [mqtt.Client, UserDataT | None, mqtt.MQTTMessage], None
+]
+
+
+class TlsSetFunction(Protocol):
+    def __call__(
+        self,
+        ca_certs: str | None = None,
+        certfile: str | None = None,
+        keyfile: str | None = None,
+        cert_reqs: ssl.VerifyMode | None = None,
+        tls_version: int | None = None,
+        ciphers: str | None = None,
+        keyfile_password: str | None = None,
+        alpn_protocols: list[str] | None = None,
+    ) -> None: ...
+
+
+CONFIGURATION_KEY_NAMES = _CONFIGURATION_KEY_NAMES
 
 
 class DeviceInfo(BaseModel):
@@ -510,12 +92,18 @@ class DeviceInfo(BaseModel):
     """The suggested name for the area where the device is located."""
 
     @model_validator(mode="before")
-    def must_have_identifiers_or_connection(cls, values):
+    @classmethod
+    def must_have_identifiers_or_connection(cls, values: object) -> object:
         """Check that either `identifiers` or `connections` is set"""
-        identifiers, connections = values.get("identifiers"), values.get("connections")
+        if not isinstance(values, dict):
+            return values
+
+        validator_values = cast(ValidatorValues, values)
+        identifiers = validator_values.get("identifiers")
+        connections = validator_values.get("connections")
         if identifiers is None and connections is None:
             raise ValueError("Define identifiers or connections")
-        return values
+        return validator_values
 
 
 class EntityInfo(BaseModel):
@@ -550,16 +138,23 @@ class EntityInfo(BaseModel):
         device"""
 
     @model_validator(mode="before")
-    def device_need_unique_id(cls, values):
+    @classmethod
+    def device_need_unique_id(cls, values: object) -> object:
         """Check that `unique_id` is set if `device` is provided,\
             otherwise Home Assistant will not link the sensor to the device"""
-        device, unique_id = values.get("device"), values.get("unique_id")
+        if not isinstance(values, dict):
+            return values
+
+        validator_values = cast(ValidatorValues, values)
+        device = validator_values.get("device")
+        unique_id = validator_values.get("unique_id")
         if device is not None and unique_id is None:
             raise ValueError("A unique_id is required if a device is defined")
-        return values
+        return validator_values
 
 
 EntityType = TypeVar("EntityType", bound=EntityInfo)
+UserDataT = TypeVar("UserDataT")
 
 
 class Settings(BaseModel, Generic[EntityType]):
@@ -567,7 +162,7 @@ class Settings(BaseModel, Generic[EntityType]):
         """Connection settings for the MQTT broker"""
 
         # To use mqtt.Client
-        model_config = ConfigDict(arbitrary_types_allowed=True)
+        model_config: ClassVar[ConfigDict] = ConfigDict(arbitrary_types_allowed=True)
 
         host: str | None = "homeassistant"
         port: int | None = 1883
@@ -607,6 +202,8 @@ class Discoverable(Generic[EntityType]):
 
     mqtt_client: mqtt.Client
     wrote_configuration: bool = False
+    debug: bool = False
+    config_message: str = ""
     # MQTT topics
     _entity_topic: str
     config_topic: str
@@ -617,7 +214,7 @@ class Discoverable(Generic[EntityType]):
     def __init__(
         self,
         settings: Settings[EntityType],
-        on_connect: Callable[..., Any] | None = None,
+        on_connect: OnConnectCallback | None = None,
     ) -> None:
         """
         Creates a basic discoverable object.
@@ -689,6 +286,7 @@ class Discoverable(Generic[EntityType]):
         if not (on_connect or self._settings.mqtt.client is not None):
             self._connect_client()
 
+    @override
     def __str__(self) -> str:
         """
         Generate a string representation of the Discoverable object
@@ -702,7 +300,7 @@ wrote_configuration: {self.wrote_configuration}
         """
         return dump
 
-    def _setup_client(self, on_connect: Callable[..., Any] | None = None) -> None:
+    def _setup_client(self, on_connect: OnConnectCallback | None = None) -> None:
         """Create an MQTT client and setup some basic properties on it"""
 
         # If the user has passed in an MQTT client, use it
@@ -718,6 +316,7 @@ wrote_configuration: {self.wrote_configuration}
             callback_api_version=CallbackAPIVersion.VERSION2,
             client_id=mqtt_settings.client_name,
         )
+        tls_set = cast(TlsSetFunction, self.mqtt_client.tls_set)
         if mqtt_settings.tls_key:
             logger.info(
                 f"Connecting to {mqtt_settings.host}:{mqtt_settings.port} with SSL and client certificate authentication"
@@ -725,7 +324,7 @@ wrote_configuration: {self.wrote_configuration}
             logger.debug(f"ca_certs={mqtt_settings.tls_ca_cert}")
             logger.debug(f"certfile={mqtt_settings.tls_certfile}")
             logger.debug(f"keyfile={mqtt_settings.tls_key}")
-            self.mqtt_client.tls_set(
+            tls_set(
                 ca_certs=mqtt_settings.tls_ca_cert,
                 certfile=mqtt_settings.tls_certfile,
                 keyfile=mqtt_settings.tls_key,
@@ -738,13 +337,13 @@ wrote_configuration: {self.wrote_configuration}
             )
             logger.debug(f"ca_certs={mqtt_settings.tls_ca_cert}")
             if mqtt_settings.tls_ca_cert:
-                self.mqtt_client.tls_set(
+                tls_set(
                     ca_certs=mqtt_settings.tls_ca_cert,
                     cert_reqs=ssl.CERT_REQUIRED,
                     tls_version=ssl.PROTOCOL_TLS,
                 )
             else:
-                self.mqtt_client.tls_set(
+                tls_set(
                     cert_reqs=ssl.CERT_REQUIRED,
                     tls_version=ssl.PROTOCOL_TLS,
                 )
@@ -795,14 +394,14 @@ wrote_configuration: {self.wrote_configuration}
         state: str | float | int | None,
         topic: str | None = None,
         last_reset: str | None = None,
-        retain=True,
+        retain: bool = True,
     ) -> MQTTMessageInfo | None:
         """
         Write a state to the given MQTT topic, returning the result of client.publish()
         """
         if not self.wrote_configuration:
             logger.debug("Writing sensor configuration")
-            self.write_config()
+            _ = self.write_config()
         if not topic:
             logger.debug(f"State topic unset, using default: {self.state_topic}")
             topic = self.state_topic
@@ -818,11 +417,11 @@ wrote_configuration: {self.wrote_configuration}
         logger.debug(f"Publish result: {message_info}")
         return message_info
 
-    def debug_mode(self, mode: bool):
+    def debug_mode(self, mode: bool) -> None:
         self.debug = mode
         logger.debug(f"Set debug mode to {self.debug}")
 
-    def delete(self) -> None:
+    def delete(self) -> MQTTMessageInfo:
         """
         Delete a synthetic sensor from Home Assistant via MQTT message.
 
@@ -838,9 +437,9 @@ wrote_configuration: {self.wrote_configuration}
         logger.info(
             f"Writing '{config_message}' to topic {self.config_topic} on {self._settings.mqtt.host}:{self._settings.mqtt.port}"
         )
-        self.mqtt_client.publish(self.config_topic, config_message, retain=True)
+        return self.mqtt_client.publish(self.config_topic, config_message, retain=True)
 
-    def generate_config(self) -> dict[str, Any]:
+    def generate_config(self) -> dict[str, object]:
         """
         Generate a dictionary that we'll grind into JSON and write to MQTT.
 
@@ -849,7 +448,10 @@ wrote_configuration: {self.wrote_configuration}
         """
         # Automatically generate a dict using pydantic
         # Exclude object_id since we transform it to default_entity_id
-        config = self._entity.model_dump(exclude_none=True, exclude={"object_id"})
+        config = cast(
+            dict[str, object],
+            self._entity.model_dump(exclude_none=True, exclude={"object_id"}),
+        )
 
         # Transform object_id to default_entity_id (HA 2025.x deprecation fix)
         # Format: "{component}.{object_id}" e.g. "media_player.mock_player"
@@ -889,7 +491,7 @@ wrote_configuration: {self.wrote_configuration}
 
         return self.mqtt_client.publish(self.config_topic, config_message, retain=True)
 
-    def set_attributes(self, attributes: dict[str, Any]):
+    def set_attributes(self, attributes: dict[str, object]) -> None:
         """Update the attributes of the entity
 
         Args:
@@ -907,7 +509,7 @@ wrote_configuration: {self.wrote_configuration}
         message = "online" if availability else "offline"
         self._state_helper(message, topic=self.availability_topic)
 
-    def _update_state(self, state) -> None:
+    def _update_state(self, state: str | float | int | None) -> None:
         """
         Update MQTT device state
 
@@ -927,14 +529,14 @@ class Subscriber(Discoverable[EntityType]):
     Specialized sub-lass that listens to commands coming from an MQTT topic
     """
 
-    T = TypeVar("T")  # Used in the callback function
+    _has_command_callback: bool
+    _command_topic: str
 
     def __init__(
         self,
         settings: Settings[EntityType],
-        command_callback: Callable[[mqtt.Client, T, mqtt.MQTTMessage], Any]
-        | None = None,
-        user_data: T = None,
+        command_callback: MessageCallback[UserDataT] | None = None,
+        user_data: UserDataT | None = None,
     ) -> None:
         """
         Entity that listens to commands from an MQTT topic.
@@ -947,32 +549,39 @@ class Subscriber(Discoverable[EntityType]):
         """
         self._has_command_callback = command_callback is not None
 
-        if self._has_command_callback:
-            # Callback invoked when the MQTT connection is established
-            def on_client_connected(client: mqtt.Client, *args):
-                # Subscribe to the command topic
-                result, _ = client.subscribe(self._command_topic, qos=1)
-                if result is not mqtt.MQTT_ERR_SUCCESS:
-                    raise RuntimeError("Error subscribing to MQTT command topic")
-
-            # Invoke the parent init
-            super().__init__(settings, on_client_connected)
-            # Define the command topic to receive commands from HA, using `hmd` topic prefix
-            self._command_topic = (
-                f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/command"
-            )
-
-            # Register the user-supplied callback function with its user_data
-            self.mqtt_client.user_data_set(user_data)
-            self.mqtt_client.on_message = command_callback
-
-            # Manually connect the MQTT client
-            self._connect_client()
-        else:
+        if command_callback is None:
             # No command callback provided - behave like Discoverable
             super().__init__(settings)
+            return
 
-    def generate_config(self) -> dict[str, Any]:
+        # Callback invoked when the MQTT connection is established
+        def on_client_connected(
+            client: mqtt.Client,
+            _user_data: object,
+            _flags: mqtt.ConnectFlags,
+            _reason_code: ReasonCode,
+            _properties: Properties | None,
+        ) -> None:
+            result, _ = client.subscribe(self._command_topic, qos=1)
+            if result is not mqtt.MQTT_ERR_SUCCESS:
+                raise RuntimeError("Error subscribing to MQTT command topic")
+
+        # Invoke the parent init
+        super().__init__(settings, on_client_connected)
+        # Define the command topic to receive commands from HA, using `hmd` topic prefix
+        self._command_topic = (
+            f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/command"
+        )
+
+        # Register the user-supplied callback function with its user_data
+        self.mqtt_client.user_data_set(user_data)
+        self.mqtt_client.on_message = cast(mqtt.CallbackOnMessage, command_callback)
+
+        # Manually connect the MQTT client
+        self._connect_client()
+
+    @override
+    def generate_config(self) -> dict[str, object]:
         """Override base config to add the command topic if callback was provided"""
         config = super().generate_config()
 

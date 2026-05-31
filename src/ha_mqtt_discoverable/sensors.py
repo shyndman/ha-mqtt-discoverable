@@ -16,18 +16,21 @@
 # Required to define a class itself as type https://stackoverflow.com/a/33533514
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import json
 import logging
-from typing import Annotated, Any, NotRequired
+from typing import Annotated, NotRequired, override
 
-from pydantic import Field, HttpUrl, TypeAdapter, ValidationError
-from pydantic.types import conint
+from pydantic import Field, HttpUrl, TypeAdapter, ValidationError, model_validator
 from typing_extensions import TypedDict
 
 from ha_mqtt_discoverable import (
     DeviceInfo,
     Discoverable,
     EntityInfo,
+    MessageCallback,
+    Settings,
     Subscriber,
 )
 
@@ -241,8 +244,14 @@ class DeviceTriggerInfo(EntityInfo):
     """The type of the trigger"""
     subtype: str
     """The subtype of the trigger"""
-    device: DeviceInfo
+    device: DeviceInfo | None = None
     """Information about the device this sensor belongs to (required)"""
+
+    @model_validator(mode="after")
+    def require_device(self) -> DeviceTriggerInfo:
+        if self.device is None:
+            raise ValueError("A device is required for device triggers")
+        return self
 
 
 class CameraInfo(EntityInfo):
@@ -360,7 +369,9 @@ class BinarySensor(Discoverable[BinarySensorInfo]):
 
 
 class Sensor(Discoverable[SensorInfo]):
-    def set_state(self, state: str | int | float, last_reset: str = None) -> None:
+    def set_state(
+        self, state: str | int | float, last_reset: str | None = None
+    ) -> None:
         """
         Update the sensor state
 
@@ -374,9 +385,8 @@ class Sensor(Discoverable[SensorInfo]):
         self._state_helper(str(state), last_reset=last_reset)
 
 
-# Inherit the on and off methods from the BinarySensor class, changing only the
-# documentation string
-class Switch(Subscriber[SwitchInfo], BinarySensor):
+# Inherit the binary sensor payload semantics while keeping a single generic base.
+class Switch(Subscriber[SwitchInfo]):
     """Implements an MQTT switch:
     https://www.home-assistant.io/integrations/switch.mqtt
     """
@@ -385,13 +395,19 @@ class Switch(Subscriber[SwitchInfo], BinarySensor):
         """
         Set switch to off
         """
-        super().off()
+        logger.info(
+            f"Setting {self._entity.name} to {self._entity.payload_off} using {self.state_topic}"
+        )
+        self._state_helper(state=self._entity.payload_off)
 
     def on(self):
         """
         Set switch to on
         """
-        super().on()
+        logger.info(
+            f"Setting {self._entity.name} to {self._entity.payload_on} using {self.state_topic}"
+        )
+        self._state_helper(state=self._entity.payload_on)
 
 
 class Light(Subscriber[LightInfo]):
@@ -406,7 +422,7 @@ class Light(Subscriber[LightInfo]):
         state_payload = {
             "state": self._entity.payload_on,
         }
-        self._update_state(state_payload)
+        self._update_json_state(state_payload)
 
     def off(self) -> None:
         """
@@ -415,7 +431,7 @@ class Light(Subscriber[LightInfo]):
         state_payload = {
             "state": self._entity.payload_off,
         }
-        self._update_state(state_payload)
+        self._update_json_state(state_payload)
 
     def brightness(self, brightness: int) -> None:
         """
@@ -434,9 +450,9 @@ class Light(Subscriber[LightInfo]):
             "state": self._entity.payload_on,
         }
 
-        self._update_state(state_payload)
+        self._update_json_state(state_payload)
 
-    def color(self, color_mode: str, color: dict[str, Any]) -> None:
+    def color(self, color_mode: str, color: Mapping[str, object]) -> None:
         """
         Set color of the light.
         NOTE: Make sure color formatting conforms to color mode, it is up to the caller to make sure
@@ -450,9 +466,14 @@ class Light(Subscriber[LightInfo]):
             raise RuntimeError(
                 f"Light {self._entity.name} does not support setting color"
             )
-        if color_mode not in self._entity.supported_color_modes:
+        supported_color_modes = self._entity.supported_color_modes
+        if supported_color_modes is None:
             raise RuntimeError(
-                f"Color is not in configured supported_color_modes {str(self._entity.supported_color_modes)}"
+                f"Light {self._entity.name} has no supported_color_modes configured"
+            )
+        if color_mode not in supported_color_modes:
+            raise RuntimeError(
+                f"Color is not in configured supported_color_modes {str(supported_color_modes)}"
             )
         # We do not check if color schema conforms to color mode formatting, it is up to the caller
         state_payload = {
@@ -460,7 +481,7 @@ class Light(Subscriber[LightInfo]):
             "color": color,
             "state": self._entity.payload_on,
         }
-        self._update_state(state_payload)
+        self._update_json_state(state_payload)
 
     def effect(self, effect: str) -> None:
         """
@@ -471,17 +492,22 @@ class Light(Subscriber[LightInfo]):
         """
         if not self._entity.effect:
             raise RuntimeError(f"Light {self._entity.name} does not support effects")
-        if effect not in self._entity.effect_list:
+        effect_list = self._entity.effect_list
+        if effect_list is None:
             raise RuntimeError(
-                f"Effect is not within configured effect_list {str(self._entity.effect_list)}"
+                f"Light {self._entity.name} has no effect_list configured"
+            )
+        if effect not in effect_list:
+            raise RuntimeError(
+                f"Effect is not within configured effect_list {str(effect_list)}"
             )
         state_payload = {
             "effect": effect,
             "state": self._entity.payload_on,
         }
-        self._update_state(state_payload)
+        self._update_json_state(state_payload)
 
-    def _update_state(self, state: dict[str, Any]) -> None:
+    def _update_json_state(self, state: Mapping[str, object]) -> None:
         """
         Update MQTT sensor state
 
@@ -490,9 +516,8 @@ class Light(Subscriber[LightInfo]):
         """
         logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
         json_state = json.dumps(state)
-        self._state_helper(
-            state=json_state, topic=self.state_topic, retain=self._entity.retain
-        )
+        retain = True if self._entity.retain is None else self._entity.retain
+        _ = self._state_helper(state=json_state, topic=self.state_topic, retain=retain)
 
 
 class Cover(Subscriber[CoverInfo]):
@@ -520,18 +545,18 @@ class Cover(Subscriber[CoverInfo]):
         """Set cover state to stopped"""
         self._update_state(self._entity.state_stopped)
 
-    def _update_state(self, state: str) -> None:
+    @override
+    def _update_state(self, state: str | float | int | None) -> None:
         """
         Update MQTT sensor state
 
         Args:
             state(str): What state to set the cover to
         """
-        print("State: " + state)
+        print(f"State: {state}")
         logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
-        self._state_helper(
-            state=state, topic=self.state_topic, retain=self._entity.retain
-        )
+        retain = True if self._entity.retain is None else self._entity.retain
+        self._state_helper(state=state, topic=self.state_topic, retain=retain)
 
 
 class Button(Subscriber[ButtonInfo]):
@@ -545,7 +570,8 @@ class DeviceTrigger(Discoverable[DeviceTriggerInfo]):
     https://www.home-assistant.io/integrations/device_trigger.mqtt/
     """
 
-    def generate_config(self) -> dict[str, Any]:
+    @override
+    def generate_config(self) -> dict[str, object]:
         """Publish a custom configuration: since this entity does not provide a
         `state_topic`, HA expects a `topic` key in the config
         """
@@ -630,24 +656,28 @@ class Camera(Subscriber[CameraInfo]):
         )
         self._state_helper(image_topic)
 
-    def set_availability(self, available: bool) -> None:
+    @override
+    def set_availability(self, availability: bool) -> None:
         """
         Update the camera availability status.
 
         Args:
-            available (bool): Whether the camera is available or not.
+            availability (bool): Whether the camera is available or not.
         """
+        availability_topic = self._entity.availability_topic
+        if availability_topic is None:
+            raise RuntimeError("Camera availability topic is not configured")
+
         payload = (
-            self._entity.payload_available
-            if available
-            else self._entity.payload_not_available
+            self._entity.payload_available or "online"
+            if availability
+            else self._entity.payload_not_available or "offline"
         )
+        retain = True if self._entity.retain is None else self._entity.retain
         logger.info(
-            f"Setting camera availability to {payload} using {self._entity.availability_topic}"
+            f"Setting camera availability to {payload} using {availability_topic}"
         )
-        self.mqtt_client.publish(
-            self._entity.availability_topic, payload, retain=self._entity.retain
-        )
+        self.mqtt_client.publish(availability_topic, payload, retain=retain)
 
 
 class Image(Discoverable[ImageInfo]):
@@ -687,7 +717,7 @@ class Select(Subscriber[SelectInfo]):
             raise RuntimeError("Image URL cannot be empty")
 
         logger.info(f"Publishing options {opt} to {self._entity.options}")
-        self._state_helper(opt)
+        self._state_helper(json.dumps(opt))
 
 
 class UpdateStatePayload(TypedDict, total=False):
@@ -704,9 +734,7 @@ class UpdateStatePayload(TypedDict, total=False):
     release_url: NotRequired[HttpUrl]  # Strict URL validation
     entity_picture: NotRequired[HttpUrl]  # Strict URL validation
     in_progress: NotRequired[bool]
-    update_percentage: NotRequired[
-        conint(ge=0, le=100)
-    ]  # Range validation  # type: ignore # Range validation
+    update_percentage: NotRequired[Annotated[int, Field(ge=0, le=100)]]
 
 
 # Create TypeAdapter for validation
@@ -789,7 +817,14 @@ class Update(Subscriber[UpdateInfo]):
         >>> update.set_progress(75)  # Automatically sets in_progress=True
     """
 
-    def __init__(self, settings, command_callback=None, user_data=None):
+    _latest_version_topic: str
+
+    def __init__(
+        self,
+        settings: Settings[UpdateInfo],
+        command_callback: MessageCallback[object] | None = None,
+        user_data: object | None = None,
+    ) -> None:
         """
         Initialize the Update entity.
 
@@ -875,7 +910,7 @@ class Update(Subscriber[UpdateInfo]):
             update.set_state(installed="1.0.0", latest="1.1.0", title="Major Update", release_summary="Bug fixes")
         """
         # Build the state payload
-        state: UpdateStatePayload = {
+        state: dict[str, object] = {
             "installed_version": installed,
         }
 
@@ -906,7 +941,10 @@ class Update(Subscriber[UpdateInfo]):
         logger.info(f"Setting complete state for {self._entity.name}: {state}")
         self._update_state(state)
 
-    def _update_state(self, state: UpdateStatePayload) -> None:
+    @override
+    def _update_state(
+        self, state: str | float | int | None | Mapping[str, object]
+    ) -> None:
         """
         Update MQTT entity state with JSON validation.
 
@@ -915,6 +953,9 @@ class Update(Subscriber[UpdateInfo]):
 
         Note: Only JSON payloads are supported - non-JSON payloads are not supported by this implementation.
         """
+        if not isinstance(state, Mapping):
+            raise TypeError("Update state payload must be a mapping")
+
         # Filter out None values before validation (TypedDict doesn't auto-exclude like BaseModel)
         filtered_state = {k: v for k, v in state.items() if v is not None}
 
@@ -930,12 +971,13 @@ class Update(Subscriber[UpdateInfo]):
             logger.error(f"Invalid update state payload for {self._entity.name}: {e}")
             raise ValueError(f"Invalid update state payload: {e}") from e
 
-    def generate_config(self) -> dict[str, Any]:
+    @override
+    def generate_config(self) -> dict[str, object]:
         """Override base config to add update-specific topics and configuration options"""
         config = super().generate_config()
 
         # Add update-specific configuration options
-        update_config = {}
+        update_config: dict[str, object] = {}
 
         # Add display_precision if not default (0)
         if self._entity.display_precision != 0:

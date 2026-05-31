@@ -14,9 +14,18 @@
 #    limitations under the License.
 #
 import pytest
+from paho.mqtt.client import Client, MQTTMessage
 
 from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import Button, ButtonInfo
+
+
+def noop_command_callback(
+    _client: Client,
+    _user_data: object | None,
+    _message: MQTTMessage,
+) -> None:
+    return None
 
 
 @pytest.fixture(name="button")
@@ -25,7 +34,7 @@ def button() -> Button:
     sensor_info = ButtonInfo(name="test")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     # Define an empty `command_callback`
-    return Button(settings, lambda *_: None)
+    return Button(settings, noop_command_callback)
 
 
 def test_required_config():
@@ -33,5 +42,5 @@ def test_required_config():
     sensor_info = ButtonInfo(name="test")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     # Define empty callback
-    sensor = Button(settings, lambda *_: None)
+    sensor = Button(settings, noop_command_callback)
     assert sensor is not None

@@ -17,9 +17,16 @@ import random
 import string
 
 import pytest
+from paho.mqtt.client import Client, MQTTMessage
 
 from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import Text, TextInfo
+
+
+def noop_command_callback(
+    _client: Client, _user_data: object | None, _message: MQTTMessage
+) -> None:
+    pass
 
 
 @pytest.fixture
@@ -28,7 +35,7 @@ def text() -> Text:
     text_info = TextInfo(name="test", min=5)
     settings = Settings(mqtt=mqtt_settings, entity=text_info)
     # Define empty callback
-    return Text(settings, lambda *_: None)
+    return Text(settings, noop_command_callback)
 
 
 def test_required_config():
@@ -36,7 +43,7 @@ def test_required_config():
     text_info = TextInfo(name="test")
     settings = Settings(mqtt=mqtt_settings, entity=text_info)
     # Define empty callback
-    text = Text(settings, lambda *_: None)
+    text = Text(settings, noop_command_callback)
     assert text is not None
 
 
@@ -52,6 +59,6 @@ def test_too_short_string(text: Text):
 def test_too_long_string(text: Text):
     length = 500
     letters = string.ascii_lowercase
-    random_string = "".join(random.choice(letters) for i in range(length))
+    random_string = "".join(random.choice(letters) for _ in range(length))
     with pytest.raises(RuntimeError):
         text.set_text(random_string)

@@ -19,10 +19,10 @@ from ha_mqtt_discoverable import Settings
 from ha_mqtt_discoverable.sensors import BinarySensor, BinarySensorInfo
 
 
-@pytest.fixture(name="sensor", params=["on", "custom_on"])
-def binary_sensor(request) -> BinarySensor:
+@pytest.fixture(name="sensor")
+def binary_sensor() -> BinarySensor:
     mqtt_settings = Settings.MQTT(host="localhost")
-    sensor_info = BinarySensorInfo(name="test", payload_on=request.param)
+    sensor_info = BinarySensorInfo(name="test", payload_on="on")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     return BinarySensor(settings)
 
@@ -35,13 +35,17 @@ def test_required_config():
     assert sensor is not None
 
 
-def test_generate_config(sensor: BinarySensor):
+@pytest.mark.parametrize("payload_on", ["on", "custom_on"])
+def test_generate_config(payload_on: str):
+    mqtt_settings = Settings.MQTT(host="localhost")
+    sensor_info = BinarySensorInfo(name="test", payload_on=payload_on)
+    settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
+    sensor = BinarySensor(settings)
+
     config = sensor.generate_config()
 
     assert config is not None
-    # If we have defined a custom payload, check that is part of the output config
-    if sensor._entity.payload_on:
-        assert config["payload_on"] == sensor._entity.payload_on
+    assert config["payload_on"] == payload_on
 
 
 def test_update_state(sensor: BinarySensor):

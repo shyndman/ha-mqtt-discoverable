@@ -19,9 +19,21 @@ from threading import Event
 
 import pytest
 from paho.mqtt import publish
-from paho.mqtt.client import MQTTMessage
+from paho.mqtt.client import Client, MQTTMessage
 
 from ha_mqtt_discoverable import EntityInfo, Settings, Subscriber
+
+
+def noop_command_callback(
+    _client: Client, _user_data: object | None, _message: MQTTMessage
+) -> None:
+    pass
+
+
+def command_topic(subscriber: Subscriber[EntityInfo]) -> str:
+    topic = subscriber.generate_config()["command_topic"]
+    assert isinstance(topic, str)
+    return topic
 
 
 @pytest.fixture
@@ -30,7 +42,7 @@ def subscriber() -> Subscriber[EntityInfo]:
     sensor_info = EntityInfo(name="test", component="button")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     # Define an empty `command_callback`
-    return Subscriber(settings, lambda *_: None)
+    return Subscriber(settings, noop_command_callback)
 
 
 def test_required_config():
@@ -38,16 +50,16 @@ def test_required_config():
     sensor_info = EntityInfo(name="test", component="button")
     settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
     # Define empty callback
-    sensor = Subscriber(settings, lambda *_: None)
+    sensor = Subscriber(settings, noop_command_callback)
     assert sensor is not None
 
 
-def test_generate_config(subscriber: Subscriber):
+def test_generate_config(subscriber: Subscriber[EntityInfo]):
     config = subscriber.generate_config()
 
     assert config is not None
     # Check that command topic is part of the output config
-    assert config["command_topic"] == subscriber._command_topic
+    assert config["command_topic"] == command_topic(subscriber)
 
 
 def test_command_callback():
@@ -61,7 +73,9 @@ def test_command_callback():
     custom_user_data = "data"
 
     # Callback to receive the command message
-    def custom_callback(client, user_data, message: MQTTMessage):
+    def custom_callback(
+        _client: Client, user_data: str | None, message: MQTTMessage
+    ) -> None:
         payload = message.payload.decode()
         logging.info(f"Received {payload}")
         assert payload == "on"
@@ -73,6 +87,6 @@ def test_command_callback():
     time.sleep(2)
 
     # Send a command to the command topic
-    publish.single(switch._command_topic, "on", hostname="localhost")
+    publish.single(command_topic(switch), "on", hostname="localhost")
 
     assert message_received.wait(2)

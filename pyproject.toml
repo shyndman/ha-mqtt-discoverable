@@ -41,6 +41,8 @@ typeCheckingMode = "recommended"
 failOnWarnings = true
 include = ["scripts", "src", "tests"]
 extraPaths = ["src"]
+reportUnusedCallResult = 'hint'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]

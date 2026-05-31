@@ -643,7 +643,9 @@ Pydantic 2 has issues on 32-bit ARM. More details are on [ha-mqtt-discoverable/p
 
 ## Contributing
 
-Please run `ruff` on your code before submitting. There are `git` hooks already configured to run `ruff` and other checks before every commit, please run `pre-commit install` to enable them.
+Run `task test` to execute the test suite. It starts a temporary Mosquitto broker, runs `pytest`, then shuts the broker down.
+
+Run `task format` before submitting. There are `git` hooks already configured to run `ruff` and other checks before every commit, please run `prek install` to enable them.
 
 ## Users of ha-mqtt-discoverable
 

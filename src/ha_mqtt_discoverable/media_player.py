@@ -89,6 +89,9 @@ class MediaPlayerTopics:
     DURATION: ClassVar[str] = _topic_name("duration")
     POSITION: ClassVar[str] = _topic_name("position")
     VOLUME: ClassVar[str] = _topic_name("volume")
+    VOLUME_MUTE_STATE: ClassVar[str] = _topic_name("volume_mute_state")
+    SHUFFLE_STATE: ClassVar[str] = _topic_name("shuffle_state")
+    REPEAT_STATE: ClassVar[str] = _topic_name("repeat_state")
     ALBUMART: ClassVar[str] = _topic_name("albumart")
     MEDIA_IMAGE_REMOTELY_ACCESSIBLE: ClassVar[str] = _topic_name(
         "media_image_remotely_accessible"
@@ -304,23 +307,25 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
     def set_muted(self, muted: bool) -> None:
         """Update mute state"""
-        logger.info(f"Setting {self._entity.name} muted to {muted}")
-        # TODO: This currently validates/logs only and does not publish state.
-        # Note: mute state typically published to volume topic or separate mute topic
-        # For now, we'll use a simple approach
+        message = "true" if muted else "false"
+        logger.info(f"Setting {self._entity.name} muted to {message}")
+        self._state_helper(
+            message, topic=self._topics[MediaPlayerTopics.VOLUME_MUTE_STATE]
+        )
 
     def set_shuffle(self, shuffle: bool) -> None:
         """Update shuffle state"""
-        if MediaPlayerTopics.SHUFFLE_SET not in self._topics:
-            raise RuntimeError("Player does not support shuffle control")
+        if MediaPlayerTopics.SHUFFLE_STATE not in self._topics:
+            raise RuntimeError("Player does not support shuffle state reporting")
 
-        logger.info(f"Setting {self._entity.name} shuffle to {shuffle}")
-        # TODO: This currently validates/logs only and does not publish state.
+        message = "true" if shuffle else "false"
+        logger.info(f"Setting {self._entity.name} shuffle to {message}")
+        self._state_helper(message, topic=self._topics[MediaPlayerTopics.SHUFFLE_STATE])
 
     def set_repeat(self, repeat: str) -> None:
         """Update repeat mode"""
-        if MediaPlayerTopics.REPEAT_SET not in self._topics:
-            raise RuntimeError("Player does not support repeat control")
+        if MediaPlayerTopics.REPEAT_STATE not in self._topics:
+            raise RuntimeError("Player does not support repeat state reporting")
 
         valid_modes = ["off", "all", "one"]
         if repeat not in valid_modes:
@@ -329,7 +334,7 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
             )
 
         logger.info(f"Setting {self._entity.name} repeat to {repeat}")
-        # TODO: This currently validates/logs only and does not publish state.
+        self._state_helper(repeat, topic=self._topics[MediaPlayerTopics.REPEAT_STATE])
 
     @override
     def set_availability(self, availability: bool) -> None:

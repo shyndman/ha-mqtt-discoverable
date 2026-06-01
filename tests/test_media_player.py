@@ -349,6 +349,9 @@ def test_topic_generation_full_player(
         MediaPlayerTopics.DURATION,
         MediaPlayerTopics.POSITION,
         MediaPlayerTopics.VOLUME,
+        MediaPlayerTopics.VOLUME_MUTE_STATE,
+        MediaPlayerTopics.SHUFFLE_STATE,
+        MediaPlayerTopics.REPEAT_STATE,
         MediaPlayerTopics.ALBUMART,
         MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE,
         MediaPlayerTopics.AVAILABILITY,
@@ -420,12 +423,18 @@ def test_topic_naming_convention(
     assert MediaPlayerTopics.NEXT_TRACK in topics
     assert MediaPlayerTopics.PREVIOUS_TRACK in topics
     assert MediaPlayerTopics.VOLUME_SET in topics
+    assert MediaPlayerTopics.VOLUME_MUTE_STATE in topics
     assert MediaPlayerTopics.VOLUME_MUTE in topics
+    assert MediaPlayerTopics.SHUFFLE_STATE in topics
+    assert MediaPlayerTopics.REPEAT_STATE in topics
 
     assert topics[MediaPlayerTopics.NEXT_TRACK].endswith("/next_track")
     assert topics[MediaPlayerTopics.PREVIOUS_TRACK].endswith("/previous_track")
     assert topics[MediaPlayerTopics.VOLUME_SET].endswith("/volume_set")
+    assert topics[MediaPlayerTopics.VOLUME_MUTE_STATE].endswith("/volume_mute_state")
     assert topics[MediaPlayerTopics.VOLUME_MUTE].endswith("/volume_mute")
+    assert topics[MediaPlayerTopics.SHUFFLE_STATE].endswith("/shuffle_state")
+    assert topics[MediaPlayerTopics.REPEAT_STATE].endswith("/repeat_state")
 
 
 # === MQTT Subscription Tests (structural validation) ===
@@ -523,6 +532,9 @@ def test_all_players_have_state_topics():
         MediaPlayerTopics.DURATION,
         MediaPlayerTopics.POSITION,
         MediaPlayerTopics.VOLUME,
+        MediaPlayerTopics.VOLUME_MUTE_STATE,
+        MediaPlayerTopics.SHUFFLE_STATE,
+        MediaPlayerTopics.REPEAT_STATE,
         MediaPlayerTopics.ALBUMART,
         MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE,
         MediaPlayerTopics.AVAILABILITY,
@@ -846,12 +858,13 @@ def test_set_media_metadata():
     player.set_media_image_remotely_accessible(False)
 
 
-def test_set_muted_is_log_only_and_does_not_publish(monkeypatch: pytest.MonkeyPatch):
-    """Test that set_muted currently logs only and does not publish state"""
+def test_set_muted_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that set_muted publishes mute state"""
     mqtt_settings = Settings.MQTT(host="localhost")
     entity_info = MediaPlayerInfo(name="test_muted")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
     player = MediaPlayerHarness(settings, {})
+    player.wrote_configuration = True
 
     publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -863,32 +876,25 @@ def test_set_muted_is_log_only_and_does_not_publish(monkeypatch: pytest.MonkeyPa
     player.set_muted(True)
     player.set_muted(False)
 
-    assert publish_calls == []
+    assert publish_calls == [
+        (
+            (player.topics[MediaPlayerTopics.VOLUME_MUTE_STATE], "true"),
+            {"retain": True},
+        ),
+        (
+            (player.topics[MediaPlayerTopics.VOLUME_MUTE_STATE], "false"),
+            {"retain": True},
+        ),
+    ]
 
 
-def test_set_shuffle_without_support():
-    """Test setting shuffle when not supported"""
+def test_set_shuffle_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that shuffle state publishes independently of command support"""
     mqtt_settings = Settings.MQTT(host="localhost")
-    entity_info = MediaPlayerInfo(name="test_shuffle_unsupported")
+    entity_info = MediaPlayerInfo(name="test_shuffle_state")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
-    player = MediaPlayerHarness(settings, {})  # No shuffle_set callback
-
-    with pytest.raises(RuntimeError, match="Player does not support shuffle control"):
-        player.set_shuffle(True)
-
-
-def test_set_shuffle_with_support_does_not_publish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that supported shuffle currently validates/logs only"""
-    mqtt_settings = Settings.MQTT(host="localhost")
-    entity_info = MediaPlayerInfo(name="test_shuffle_supported")
-    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
-
-    callbacks: MediaPlayerCallbacks = {
-        "shuffle_set": noop_bool_callback,
-    }
-    player = MediaPlayerHarness(settings, callbacks)
+    player = MediaPlayerHarness(settings, {})
+    player.wrote_configuration = True
 
     publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -900,32 +906,19 @@ def test_set_shuffle_with_support_does_not_publish(
     player.set_shuffle(True)
     player.set_shuffle(False)
 
-    assert publish_calls == []
+    assert publish_calls == [
+        ((player.topics[MediaPlayerTopics.SHUFFLE_STATE], "true"), {"retain": True}),
+        ((player.topics[MediaPlayerTopics.SHUFFLE_STATE], "false"), {"retain": True}),
+    ]
 
 
-def test_set_repeat_without_support():
-    """Test setting repeat when not supported"""
+def test_set_repeat_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that repeat state publishes independently of command support"""
     mqtt_settings = Settings.MQTT(host="localhost")
-    entity_info = MediaPlayerInfo(name="test_repeat_unsupported")
+    entity_info = MediaPlayerInfo(name="test_repeat_state")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
-    player = MediaPlayerHarness(settings, {})  # No repeat_set callback
-
-    with pytest.raises(RuntimeError, match="Player does not support repeat control"):
-        player.set_repeat("all")
-
-
-def test_set_repeat_with_support_validates_but_does_not_publish(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that supported repeat currently validates/logs only"""
-    mqtt_settings = Settings.MQTT(host="localhost")
-    entity_info = MediaPlayerInfo(name="test_repeat_supported")
-    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
-
-    callbacks: MediaPlayerCallbacks = {
-        "repeat_set": noop_repeat_callback,
-    }
-    player = MediaPlayerHarness(settings, callbacks)
+    player = MediaPlayerHarness(settings, {})
+    player.wrote_configuration = True
 
     publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
 
@@ -938,7 +931,11 @@ def test_set_repeat_with_support_validates_but_does_not_publish(
     for mode in valid_modes:
         player.set_repeat(mode)
 
-    assert publish_calls == []
+    assert publish_calls == [
+        ((player.topics[MediaPlayerTopics.REPEAT_STATE], "off"), {"retain": True}),
+        ((player.topics[MediaPlayerTopics.REPEAT_STATE], "all"), {"retain": True}),
+        ((player.topics[MediaPlayerTopics.REPEAT_STATE], "one"), {"retain": True}),
+    ]
 
 
 def test_set_repeat_invalid_mode():
@@ -1038,6 +1035,9 @@ def test_generate_config_minimal_player(
         "media_duration_topic",
         "media_position_topic",
         "volume_level_topic",
+        "volume_mute_state_topic",
+        "shuffle_state_topic",
+        "repeat_state_topic",
         "media_image_url_topic",
         "media_image_remotely_accessible_topic",
     ]
@@ -1071,7 +1071,7 @@ def test_generate_config_full_player(
         "previous_track_topic",
         "volume_set_topic",
         "seek_topic",
-        "volume_mute_topic",
+        "volume_mute_command_topic",
         "shuffle_set_topic",
         "repeat_set_topic",
         "select_source_topic",
@@ -1091,6 +1091,9 @@ def test_generate_config_full_player(
         "media_duration_topic",
         "media_position_topic",
         "volume_level_topic",
+        "volume_mute_state_topic",
+        "shuffle_state_topic",
+        "repeat_state_topic",
         "media_image_url_topic",
         "media_image_remotely_accessible_topic",
     ]
@@ -1121,6 +1124,14 @@ def test_generate_config_partial_player(
 
     for topic in unexpected_command_topics:
         assert topic not in config, f"Unexpected topic present: {topic}"
+
+    expected_metadata_topics = [
+        "volume_mute_state_topic",
+        "shuffle_state_topic",
+        "repeat_state_topic",
+    ]
+    for topic in expected_metadata_topics:
+        assert topic in config, f"Missing expected state topic: {topic}"
 
 
 def test_generate_config_with_device(

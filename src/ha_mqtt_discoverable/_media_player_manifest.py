@@ -44,6 +44,11 @@ MEDIA_PLAYER_TOPIC_SPECS: Final[tuple[MediaPlayerTopicSpec, ...]] = (
     MediaPlayerTopicSpec("duration", "media_duration_topic", always_include=True),
     MediaPlayerTopicSpec("position", "media_position_topic", always_include=True),
     MediaPlayerTopicSpec("volume", "volume_level_topic", always_include=True),
+    MediaPlayerTopicSpec(
+        "volume_mute_state", "volume_mute_state_topic", always_include=True
+    ),
+    MediaPlayerTopicSpec("shuffle_state", "shuffle_state_topic", always_include=True),
+    MediaPlayerTopicSpec("repeat_state", "repeat_state_topic", always_include=True),
     MediaPlayerTopicSpec("albumart", "media_image_url_topic", always_include=True),
     MediaPlayerTopicSpec(
         "media_image_remotely_accessible",
@@ -96,7 +101,7 @@ MEDIA_PLAYER_TOPIC_SPECS: Final[tuple[MediaPlayerTopicSpec, ...]] = (
     ),
     MediaPlayerTopicSpec(
         "volume_mute",
-        "volume_mute_topic",
+        "volume_mute_command_topic",
         always_include=False,
         callback_style=MediaPlayerCallbackStyle.PARSED,
         payload_parser=MediaPlayerPayloadParser.BOOL_ON_OFF,

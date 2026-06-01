@@ -224,7 +224,12 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
         state_topics_generated = 0
 
         for spec in MEDIA_PLAYER_TOPIC_SPECS:
-            if not spec.always_include and spec.topic not in self._callbacks:
+            # Optional media-player capability is signaled by whether its discovery
+            # topic exists at all. Emit optional topics only when the matching
+            # device callback exists, so control-side integrations can infer the
+            # supported feature set from the published topic contract.
+            required_callback = spec.required_callback or spec.topic
+            if not spec.always_include and required_callback not in self._callbacks:
                 continue
 
             topic_url = build_state_topic(state_prefix, entity_topic, spec.topic)
@@ -307,6 +312,9 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
     def set_muted(self, muted: bool) -> None:
         """Update mute state"""
+        if MediaPlayerTopics.VOLUME_MUTE_STATE not in self._topics:
+            raise RuntimeError("Player does not support mute state reporting")
+
         message = "true" if muted else "false"
         logger.info(f"Setting {self._entity.name} muted to {message}")
         self._state_helper(

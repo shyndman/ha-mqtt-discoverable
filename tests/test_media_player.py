@@ -389,12 +389,15 @@ def test_topic_generation_partial_player(
         MediaPlayerTopics.PAUSE,
         MediaPlayerTopics.VOLUME_SET,
         MediaPlayerTopics.SHUFFLE_SET,
+        MediaPlayerTopics.SHUFFLE_STATE,
     }
     unexpected_command_topics = {
         MediaPlayerTopics.STOP,
         MediaPlayerTopics.NEXT_TRACK,
         MediaPlayerTopics.SEEK,
+        MediaPlayerTopics.VOLUME_MUTE_STATE,
         MediaPlayerTopics.REPEAT_SET,
+        MediaPlayerTopics.REPEAT_STATE,
     }
 
     for topic in expected_command_topics:
@@ -494,12 +497,15 @@ def test_partial_player_has_selective_command_topics(
         MediaPlayerTopics.PAUSE,
         MediaPlayerTopics.VOLUME_SET,
         MediaPlayerTopics.SHUFFLE_SET,
+        MediaPlayerTopics.SHUFFLE_STATE,
     }
     unexpected_topics = {
         MediaPlayerTopics.STOP,
         MediaPlayerTopics.NEXT_TRACK,
         MediaPlayerTopics.SEEK,
+        MediaPlayerTopics.VOLUME_MUTE_STATE,
         MediaPlayerTopics.REPEAT_SET,
+        MediaPlayerTopics.REPEAT_STATE,
     }
 
     for topic_key in expected_topics:
@@ -511,9 +517,27 @@ def test_partial_player_has_selective_command_topics(
 
 def test_all_players_have_state_topics():
     """Test that all players have state topics regardless of callbacks"""
-    players: list[tuple[str, MediaPlayerCallbacks]] = [
-        ("minimal", {}),
-        ("partial", {"play": noop_command_callback, "pause": noop_command_callback}),
+    players: list[tuple[str, MediaPlayerCallbacks, set[str], set[str]]] = [
+        (
+            "minimal",
+            {},
+            set(),
+            {
+                MediaPlayerTopics.VOLUME_MUTE_STATE,
+                MediaPlayerTopics.SHUFFLE_STATE,
+                MediaPlayerTopics.REPEAT_STATE,
+            },
+        ),
+        (
+            "partial",
+            {"play": noop_command_callback, "pause": noop_command_callback},
+            set(),
+            {
+                MediaPlayerTopics.VOLUME_MUTE_STATE,
+                MediaPlayerTopics.SHUFFLE_STATE,
+                MediaPlayerTopics.REPEAT_STATE,
+            },
+        ),
         (
             "full",
             {
@@ -521,10 +545,15 @@ def test_all_players_have_state_topics():
                 "volume_set": noop_float_callback,
                 "shuffle_set": noop_bool_callback,
             },
+            {MediaPlayerTopics.SHUFFLE_STATE},
+            {
+                MediaPlayerTopics.VOLUME_MUTE_STATE,
+                MediaPlayerTopics.REPEAT_STATE,
+            },
         ),
     ]
 
-    expected_state_topics = {
+    expected_core_state_topics = {
         MediaPlayerTopics.STATE,
         MediaPlayerTopics.TITLE,
         MediaPlayerTopics.ARTIST,
@@ -532,24 +561,32 @@ def test_all_players_have_state_topics():
         MediaPlayerTopics.DURATION,
         MediaPlayerTopics.POSITION,
         MediaPlayerTopics.VOLUME,
-        MediaPlayerTopics.VOLUME_MUTE_STATE,
-        MediaPlayerTopics.SHUFFLE_STATE,
-        MediaPlayerTopics.REPEAT_STATE,
         MediaPlayerTopics.ALBUMART,
         MediaPlayerTopics.MEDIA_IMAGE_REMOTELY_ACCESSIBLE,
         MediaPlayerTopics.AVAILABILITY,
     }
 
-    for player_name, callbacks in players:
+    for (
+        player_name,
+        callbacks,
+        supported_state_topics,
+        unsupported_state_topics,
+    ) in players:
         mqtt_settings = Settings.MQTT(host="localhost")
         entity_info = MediaPlayerInfo(name=f"test_state_topics_{player_name}")
         settings = Settings(mqtt=mqtt_settings, entity=entity_info)
         player = MediaPlayerHarness(settings, callbacks)
 
-        for topic_key in expected_state_topics:
+        for topic_key in expected_core_state_topics:
             assert topic_key in player.topics, (
                 f"{player_name} player missing state topic {topic_key}"
             )
+
+        for topic_key in supported_state_topics:
+            assert topic_key in player.topics
+
+        for topic_key in unsupported_state_topics:
+            assert topic_key not in player.topics
 
 
 # === Command Routing Tests (with real broker) ===
@@ -858,12 +895,28 @@ def test_set_media_metadata():
     player.set_media_image_remotely_accessible(False)
 
 
-def test_set_muted_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that set_muted publishes mute state"""
+def test_set_muted_without_support() -> None:
+    """Test setting mute when not supported"""
     mqtt_settings = Settings.MQTT(host="localhost")
     entity_info = MediaPlayerInfo(name="test_muted")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
     player = MediaPlayerHarness(settings, {})
+
+    with pytest.raises(
+        RuntimeError, match="Player does not support mute state reporting"
+    ):
+        player.set_muted(True)
+
+
+def test_set_muted_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that set_muted publishes mute state when supported"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    entity_info = MediaPlayerInfo(name="test_muted_supported")
+    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
+    callbacks: MediaPlayerCallbacks = {
+        "volume_mute": noop_bool_callback,
+    }
+    player = MediaPlayerHarness(settings, callbacks)
     player.wrote_configuration = True
 
     publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
@@ -888,12 +941,28 @@ def test_set_muted_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
 
 
-def test_set_shuffle_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that shuffle state publishes independently of command support"""
+def test_set_shuffle_without_support() -> None:
+    """Test setting shuffle when not supported"""
     mqtt_settings = Settings.MQTT(host="localhost")
     entity_info = MediaPlayerInfo(name="test_shuffle_state")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
     player = MediaPlayerHarness(settings, {})
+
+    with pytest.raises(
+        RuntimeError, match="Player does not support shuffle state reporting"
+    ):
+        player.set_shuffle(True)
+
+
+def test_set_shuffle_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that supported shuffle state publishes"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    entity_info = MediaPlayerInfo(name="test_shuffle_supported")
+    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
+    callbacks: MediaPlayerCallbacks = {
+        "shuffle_set": noop_bool_callback,
+    }
+    player = MediaPlayerHarness(settings, callbacks)
     player.wrote_configuration = True
 
     publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
@@ -912,12 +981,28 @@ def test_set_shuffle_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
 
 
-def test_set_repeat_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that repeat state publishes independently of command support"""
+def test_set_repeat_without_support() -> None:
+    """Test setting repeat when not supported"""
     mqtt_settings = Settings.MQTT(host="localhost")
     entity_info = MediaPlayerInfo(name="test_repeat_state")
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
     player = MediaPlayerHarness(settings, {})
+
+    with pytest.raises(
+        RuntimeError, match="Player does not support repeat state reporting"
+    ):
+        player.set_repeat("all")
+
+
+def test_set_repeat_publishes_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that supported repeat state publishes"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    entity_info = MediaPlayerInfo(name="test_repeat_supported")
+    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
+    callbacks: MediaPlayerCallbacks = {
+        "repeat_set": noop_repeat_callback,
+    }
+    player = MediaPlayerHarness(settings, callbacks)
     player.wrote_configuration = True
 
     publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
@@ -989,6 +1074,7 @@ def test_update_playback_state():
     settings = Settings(mqtt=mqtt_settings, entity=entity_info)
 
     callbacks: MediaPlayerCallbacks = {
+        "volume_mute": noop_bool_callback,
         "shuffle_set": noop_bool_callback,
         "repeat_set": noop_repeat_callback,
     }
@@ -1035,9 +1121,6 @@ def test_generate_config_minimal_player(
         "media_duration_topic",
         "media_position_topic",
         "volume_level_topic",
-        "volume_mute_state_topic",
-        "shuffle_state_topic",
-        "repeat_state_topic",
         "media_image_url_topic",
         "media_image_remotely_accessible_topic",
     ]
@@ -1112,26 +1195,21 @@ def test_generate_config_partial_player(
         "pause_topic",
         "volume_set_topic",
         "shuffle_set_topic",
+        "shuffle_state_topic",
     ]
     unexpected_command_topics = [
         "stop_topic",
         "next_track_topic",
         "seek_topic",
+        "volume_mute_state_topic",
         "repeat_set_topic",
+        "repeat_state_topic",
     ]
     for topic in expected_command_topics:
         assert topic in config, f"Missing expected topic: {topic}"
 
     for topic in unexpected_command_topics:
         assert topic not in config, f"Unexpected topic present: {topic}"
-
-    expected_metadata_topics = [
-        "volume_mute_state_topic",
-        "shuffle_state_topic",
-        "repeat_state_topic",
-    ]
-    for topic in expected_metadata_topics:
-        assert topic in config, f"Missing expected state topic: {topic}"
 
 
 def test_generate_config_with_device(

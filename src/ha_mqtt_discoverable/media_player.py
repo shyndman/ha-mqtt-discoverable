@@ -2,7 +2,7 @@ import json
 import logging
 from collections.abc import Callable
 from enum import Enum
-from typing import ClassVar, TypedDict, final, override
+from typing import ClassVar, Final, TypedDict, final, override
 
 from paho.mqtt.client import Client, MQTTMessage
 from pydantic import BaseModel, ValidationError
@@ -20,9 +20,18 @@ from ha_mqtt_discoverable._topic_paths import build_entity_topic, build_state_to
 
 logger = logging.getLogger(__name__)
 
+_MAX_LOGGED_URL_LENGTH: Final[int] = 20
+
 
 def _topic_name(name: str) -> str:
     return MEDIA_PLAYER_TOPIC_SPECS_BY_NAME[name].topic
+
+
+def _truncate_for_log(value: str, max_chars: int) -> str:
+    if len(value) <= max_chars:
+        return value
+
+    return f"{value[: max_chars - 3]}..."
 
 
 # === Pydantic Payload Models ===
@@ -297,7 +306,8 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
     def set_albumart_url(self, url: str) -> None:
         """Update album art URL"""
-        logger.info(f"Setting {self._entity.name} album art URL to {url}")
+        logged_url = _truncate_for_log(url, _MAX_LOGGED_URL_LENGTH)
+        logger.info(f"Setting {self._entity.name} album art URL to {logged_url}")
         self._state_helper(url, topic=self._topics["albumart"])
 
     def set_media_image_remotely_accessible(self, accessible: bool) -> None:

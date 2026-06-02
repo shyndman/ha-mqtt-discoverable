@@ -25,6 +25,7 @@ from paho.mqtt import publish
 from paho.mqtt.client import Client, MQTTMessage
 from pydantic import ValidationError
 
+import ha_mqtt_discoverable.media_player as media_player_module
 from ha_mqtt_discoverable import DeviceInfo, Settings
 from ha_mqtt_discoverable.media_player import (
     MediaPlayer,
@@ -893,6 +894,39 @@ def test_set_media_metadata():
     player.set_albumart_url("http://example.com/art.jpg")
     player.set_media_image_remotely_accessible(True)
     player.set_media_image_remotely_accessible(False)
+
+
+def test_set_albumart_url_logs_truncated_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that album art URL logging is capped without truncating the payload"""
+    mqtt_settings = Settings.MQTT(host="localhost")
+    entity_info = MediaPlayerInfo(name="test_albumart_logging")
+    settings = Settings(mqtt=mqtt_settings, entity=entity_info)
+    player = MediaPlayerHarness(settings, {})
+    player.wrote_configuration = True
+
+    logged_messages: list[str] = []
+    publish_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+    long_url = "https://example.com/album-art/cover.jpg"
+
+    def record_info(message: str) -> None:
+        logged_messages.append(message)
+
+    def record_publish(*args: object, **kwargs: object) -> None:
+        publish_calls.append((args, kwargs))
+
+    monkeypatch.setattr(media_player_module.logger, "info", record_info)
+    monkeypatch.setattr(player.mqtt_client, "publish", record_publish)
+
+    player.set_albumart_url(long_url)
+
+    assert logged_messages == [
+        "Setting test_albumart_logging album art URL to https://example.c..."
+    ]
+    assert publish_calls == [
+        ((player.topics[MediaPlayerTopics.ALBUMART], long_url), {"retain": True})
+    ]
 
 
 def test_set_muted_without_support() -> None:

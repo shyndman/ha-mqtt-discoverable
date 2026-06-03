@@ -1,27 +1,15 @@
-#
-#    Copyright 2022-2024 Joe Block <jpb@unixorn.net>
-#
-#    Licensed under the Apache License, Version 2.0 (the "License");
-#    you may not use this file except in compliance with the License.
-#    You may obtain a copy of the License at
-#
-#        http://www.apache.org/licenses/LICENSE-2.0
-#
-#    Unless required by applicable law or agreed to in writing, software
-#    distributed under the License is distributed on an "AS IS" BASIS,
-#    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-#    See the License for the specific language governing permissions and
-#    limitations under the License.
-#
+import asyncio
+
 import pytest
 
 from ha_mqtt_discoverable import DeviceInfo, Settings
 from ha_mqtt_discoverable.sensors import DeviceTrigger, DeviceTriggerInfo
+from ._session_stub import RecordingSession
 
 
 @pytest.fixture(name="device_trigger")
 def device_trigger() -> DeviceTrigger:
-    mqtt_settings = Settings.MQTT(host="localhost")
+    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
     device_info = DeviceInfo(name="test", identifiers="id")
     sensor_info = DeviceTriggerInfo(
         name="test",
@@ -30,23 +18,11 @@ def device_trigger() -> DeviceTrigger:
         subtype="button_1",
         unique_id="test",
     )
-    settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    return DeviceTrigger(settings)
+    return DeviceTrigger(session, sensor_info)
 
 
-def test_required_config():
-    mqtt_settings = Settings.MQTT(host="localhost")
-    device_info = DeviceInfo(name="test", identifiers="id")
-    sensor_info = DeviceTriggerInfo(
-        name="test",
-        device=device_info,
-        type="button_press",
-        subtype="button_1",
-        unique_id="test",
-    )
-    settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-    trigger = DeviceTrigger(settings)
-    assert trigger is not None
+def test_required_config(device_trigger: DeviceTrigger):
+    assert device_trigger is not None
 
 
 def test_config_topic(device_trigger: DeviceTrigger):
@@ -55,4 +31,4 @@ def test_config_topic(device_trigger: DeviceTrigger):
 
 
 def test_trigger(device_trigger: DeviceTrigger):
-    device_trigger.trigger("my_payload")
+    asyncio.run(device_trigger.trigger("my_payload"))

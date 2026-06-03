@@ -25,7 +25,6 @@ def create_base_parser(description: str = "Base parser") -> argparse.ArgumentPar
     Parse the command line options
     """
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("-d", "--debug", help="Debug setting", action="store_true")
     parser.add_argument(
         "-l",
         "--log-level",

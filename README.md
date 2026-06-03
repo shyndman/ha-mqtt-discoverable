@@ -32,7 +32,6 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
   - [Text](#text)
   - [Update](#update)
 - [FAQ](#faq)
-  - [Using an existing MQTT client](#using-an-existing-mqtt-client)
   - [I'm having problems on 32-bit ARM](#im-having-problems-on-32-bit-arm)
 - [Contributing](#contributing)
 - [Users of ha-mqtt-discoverable](#users-of-ha-mqtt-discoverable)
@@ -47,6 +46,15 @@ Using MQTT discoverable devices lets us add new sensors and devices to HA withou
 ha-mqtt-discoverable runs on Python 3.13 or later.
 
 `pip install ha-mqtt-discoverable` if you want to use it in your own python scripts. `pip install ha-mqtt-discoverable-cli` to install the `hmd` utility scripts.
+
+All examples below use the async-native API:
+
+```py
+async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    entity = SomeEntity(mqtt, SomeEntityInfo(...))
+    await entity.write_config()
+    await entity.set_state(...)
+```
 
 <!-- Please keep the entities in alphabetical order -->
 ## Supported entities
@@ -76,64 +84,44 @@ Each entity can be associated to a device. See below for details.
 The following example creates a binary sensor and sets its state:
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import BinarySensor, BinarySensorInfo
 
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
+async def main() -> None:
+    sensor_info = BinarySensorInfo(name="MySensor", device_class="motion")
 
-# Information about the sensor
-sensor_info = BinarySensorInfo(name="MySensor", device_class="motion")
-
-settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-
-# Instantiate the sensor
-mysensor = BinarySensor(settings)
-
-# Change the state of the sensor, publishing an MQTT message that gets picked up by HA
-mysensor.on()
-mysensor.off()
-
-# Or, change the state using a boolean
-mysensor.update_state(True)
-mysensor.update_state(False)
-
-# You can also set custom attributes on the sensor via a Python dict
-mysensor.set_attributes({"my attribute": "awesome"})
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        sensor = BinarySensor(mqtt, sensor_info)
+        await sensor.on()
+        await sensor.off()
+        await sensor.update_state(True)
+        await sensor.update_state(False)
+        await sensor.set_attributes({"my attribute": "awesome"})
 ```
 
 ### Button
 
-The button publishes no state, it simply receives a command from HA.
-
-You must call `write_config` on a Button after creating it to make it discoverable.
+The button publishes no state; it only receives commands from HA.
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Button, ButtonInfo
-from paho.mqtt.client import Client, MQTTMessage
+from aiomqtt import Message
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the button
-button_info = ButtonInfo(name="test")
+async def perform_my_custom_action() -> None:
+    ...
 
-settings = Settings(mqtt=mqtt_settings, entity=button_info)
 
-# To receive button commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    perform_my_custom_action()
+async def on_press(_sender: Button, _message: Message) -> None:
+    await perform_my_custom_action()
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
 
-# Instantiate the button
-my_button = Button(settings, my_callback, user_data)
-
-# Publish the button's discoverability message to let HA automatically notice it
-my_button.write_config()
+async def main() -> None:
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        button = Button(mqtt, ButtonInfo(name="test"), on_press)
+        await button.write_config()
 ```
 
 ### Camera
@@ -141,86 +129,54 @@ my_button.write_config()
 The following example creates a camera entity with a topic to a camera.
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Camera, CameraInfo
-from paho.mqtt.client import Client, MQTTMessage
+from aiomqtt import Message
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the cover
-camera_info = CameraInfo(name="test", topic="zanzito/shared_locations/my-device")
-
-settings = Settings(mqtt=mqtt_settings, entity=camera_info)
-
-# To receive state commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
+async def on_camera_command(sender: Camera, message: Message) -> None:
     payload = message.payload.decode()
-    perform_my_custom_action()
+    await sender.set_topic(payload)
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
 
-# Instantiate the cover
-my_camera = Camera(settings, my_callback, user_data)
+async def main() -> None:
+    camera_info = CameraInfo(name="test", topic="zanzito/shared_locations/my-device")
 
-# Set the initial state of the cover, which also makes it discoverable
-my_camera.set_topic("zanzito/shared_locations/my-device")  # not needed if already defined
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        camera = Camera(mqtt, camera_info, on_camera_command)
+        await camera.set_topic("zanzito/shared_locations/my-device")
 ```
 
 ### Covers
 
-A cover has five possible states `open`, `closed`, `opening`, `closing` and `stopped`. Most other entities use the states as command payload, but covers differentiate on this. The HA user can either open, close or stop it in the covers current position.
-
-Covers do not currently support tilt.
-
-A `callback` function is needed in order to parse the commands sent from HA, as the following
-example shows:
+A cover has five possible states `open`, `closed`, `opening`, `closing` and `stopped`.
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Cover, CoverInfo
-from paho.mqtt.client import Client, MQTTMessage
+from aiomqtt import Message
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the cover
-cover_info = CoverInfo(name="test")
+async def main() -> None:
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        cover: Cover
 
-settings = Settings(mqtt=mqtt_settings, entity=cover_info)
+        async def on_cover_command(sender: Cover, message: Message) -> None:
+            payload = message.payload.decode()
+            if payload == "OPEN":
+                await sender.opening()
+                open_my_custom_cover()
+                await sender.open()
+            elif payload == "CLOSE":
+                await sender.closing()
+                close_my_custom_cover()
+                await sender.closed()
+            elif payload == "STOP":
+                stop_my_custom_cover()
+                await sender.stopped()
 
-# To receive state commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    payload = message.payload.decode()
-    if payload == "OPEN":
-        # let HA know that the cover is opening
-        my_cover.opening()
-        # call function to open cover
-        open_my_custom_cover()
-        # Let HA know that the cover was opened
-        my_cover.open()
-    if payload == "CLOSE":
-        # let HA know that the cover is closing
-        my_cover.closing()
-        # call function to close the cover
-        close_my_custom_cover()
-        # Let HA know that the cover was closed
-        my_cover.closed()
-    if payload == "STOP":
-        # call function to stop the cover
-        stop_my_custom_cover()
-        # Let HA know that the cover was stopped
-        my_cover.stopped()
-
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
-# Instantiate the cover
-my_cover = Cover(settings, my_callback, user_data)
-
-# Set the initial state of the cover, which also makes it discoverable
-my_cover.closed()
+        cover = Cover(mqtt, CoverInfo(name="test"), on_cover_command)
+        await cover.closed()
 ```
 
 ### Device
@@ -230,41 +186,31 @@ From the [Home Assistant documentation](https://developers.home-assistant.io/doc
 A device is automatically created when an entity defines its `device` property.
 A device will be matched up with an existing device via supplied identifiers or connections, like serial numbers or MAC addresses.
 
-The following example create a device, by associating multiple sensors to the same `DeviceInfo` instance.
-
 ```py
-from ha_mqtt_discoverable import Settings, DeviceInfo
+from ha_mqtt_discoverable import DeviceInfo, MqttSession, Settings
 from ha_mqtt_discoverable.sensors import BinarySensor, BinarySensorInfo
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Define the device. At least one of `identifiers` or `connections` must be supplied
-device_info = DeviceInfo(name="My device", identifiers="device_id")
+async def main() -> None:
+    device_info = DeviceInfo(name="My device", identifiers="device_id")
+    motion_sensor_info = BinarySensorInfo(
+        name="My motion sensor",
+        device_class="motion",
+        unique_id="my_motion_sensor",
+        device=device_info,
+    )
+    door_sensor_info = BinarySensorInfo(
+        name="My door sensor",
+        device_class="door",
+        unique_id="my_door_sensor",
+        device=device_info,
+    )
 
-# Associate the sensor with the device via the `device` parameter
-# `unique_id` must also be set, otherwise Home Assistant will not display the device in the UI
-motion_sensor_info = BinarySensorInfo(name="My motion sensor", device_class="motion", unique_id="my_motion_sensor", device=device_info)
-
-motion_settings = Settings(mqtt=mqtt_settings, entity=motion_sensor_info)
-
-# Instantiate the sensor
-motion_sensor = BinarySensor(motion_settings)
-
-# Change the state of the sensor, publishing an MQTT message that gets picked up by HA
-motion_sensor.on()
-
-# An additional sensor can be added to the same device, by re-using the DeviceInfo instance previously defined
-door_sensor_info = BinarySensorInfo(name="My door sensor", device_class="door", unique_id="my_door_sensor", device=device_info)
-door_settings = Settings(mqtt=mqtt_settings, entity=door_sensor_info)
-
-# Instantiate the sensor
-door_sensor = BinarySensor(door_settings)
-
-# Change the state of the sensor, publishing an MQTT message that gets picked up by HA
-door_sensor.on()
-
-# The two sensors should be visible inside Home Assistant under the device `My device`
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        motion_sensor = BinarySensor(mqtt, motion_sensor_info)
+        door_sensor = BinarySensor(mqtt, door_sensor_info)
+        await motion_sensor.on()
+        await door_sensor.on()
 ```
 
 ### Device trigger
@@ -272,234 +218,179 @@ door_sensor.on()
 The following example creates a device trigger and generates a trigger event:
 
 ```py
-from ha_mqtt_discoverable import Settings
-from ha_mqtt_discoverable.sensors import DeviceInfo, DeviceTriggerInfo, DeviceTrigger
+from ha_mqtt_discoverable import DeviceInfo, MqttSession, Settings
+from ha_mqtt_discoverable.sensors import DeviceTrigger, DeviceTriggerInfo
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Define the device. At least one of `identifiers` or `connections` must be supplied
-device_info = DeviceInfo(name="My device", identifiers="device_id")
+async def main() -> None:
+    device_info = DeviceInfo(name="My device", identifiers="device_id")
+    trigger_info = DeviceTriggerInfo(
+        name="MyTrigger",
+        type="button_press",
+        subtype="button_1",
+        unique_id="my_device_trigger",
+        device=device_info,
+    )
 
-# Associate the sensor with the device via the `device` parameter
-trigger_info = DeviceTriggerInfo(name="MyTrigger", type="button_press", subtype="button_1", unique_id="my_device_trigger", device=device_info)
-
-settings = Settings(mqtt=mqtt_settings, entity=trigger_info)
-
-# Instantiate the device trigger
-mytrigger = DeviceTrigger(settings)
-
-# Generate a device trigger event, publishing an MQTT message that gets picked up by HA
-# Optionally include a payload as part of the event
-mytrigger.trigger("My custom payload")
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        trigger = DeviceTrigger(mqtt, trigger_info)
+        await trigger.trigger("My custom payload")
 ```
 
 ### Image
 
-The following example creates an entity to an image url.
+The following example creates an entity for an image URL.
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Image, ImageInfo
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the image
-image_info = ImageInfo(name="test", url_topic="topic_to_publish_url_to")
+async def main() -> None:
+    image_info = ImageInfo(name="test", url_topic="topic_to_publish_url_to")
 
-settings = Settings(mqtt=mqtt_settings, entity=image_info)
-
-# Instantiate the image
-my_image = Image(settings)
-
-# Publish an image URL to url_topic
-my_image.set_url("http://camera.local/latest.jpg")
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        image = Image(mqtt, image_info)
+        await image.set_url("http://camera.local/latest.jpg")
 ```
 
 ### Light
 
-The light is different from other current sensor as it needs its payload encoded/decoded as json.
-It is possible to set brightness, effects and the color of the light. Similar to a _switch_ it can
-also receive 'commands' from HA that request a state change.
-It is possible to act upon reception of this 'command', by defining a `callback` function, as the following example shows:
+The light payload is JSON-encoded and can both publish state and receive commands.
 
 ```py
 import json
-from ha_mqtt_discoverable import Settings
+
+from aiomqtt import Message
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Light, LightInfo
-from paho.mqtt.client import Client, MQTTMessage
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the light
-light_info = LightInfo(
-    name="test_light",
-    brightness=True,
-    color_mode=True,
-    supported_color_modes=["rgb"],
-    effect=True,
-    effect_list=["blink", "my_custom_effect"])
+async def main() -> None:
+    light_info = LightInfo(
+        name="test_light",
+        brightness=True,
+        color_mode=True,
+        supported_color_modes=["rgb"],
+        effect=True,
+        effect_list=["blink", "my_custom_effect"],
+    )
 
-settings = Settings(mqtt=mqtt_settings, entity=light_info)
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        light: Light
 
-# To receive state commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
+        async def on_light_command(sender: Light, message: Message) -> None:
+            payload = json.loads(message.payload.decode())
+            if "color" in payload:
+                set_color_of_my_light()
+                await sender.color("rgb", payload["color"])
+            elif "brightness" in payload:
+                set_brightness_of_my_light()
+                await sender.brightness(payload["brightness"])
+            elif "effect" in payload:
+                set_effect_of_my_light()
+                await sender.effect(payload["effect"])
+            elif payload.get("state") == light_info.payload_on:
+                turn_on_my_light()
+                await sender.on()
+            elif payload.get("state") == light_info.payload_off:
+                turn_off_my_light()
+                await sender.off()
 
-    # Make sure received payload is JSON
-    try:
-        payload = json.loads(message.payload.decode())
-    except ValueError:
-        print("Ony JSON schema is supported for light entities!")
-        return
-
-    # Parse received dictionary
-    if "color" in payload:
-        set_color_of_my_light()
-        my_light.color("rgb", payload["color"])
-    elif "brightness" in payload:
-        set_brightness_of_my_light()
-        my_light.brightness(payload["brightness"])
-    elif "effect" in payload:
-        set_effect_of_my_light()
-        my_light.effect(payload["effect"])
-    elif "state" in payload:
-        if payload["state"] == light_info.payload_on:
-            turn_on_my_light()
-            my_light.on()
-        else:
-            turn_off_my_light()
-            my_light.off()
-    else:
-        print("Unknown payload")
-
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
-# Instantiate the light
-my_light = Light(settings, my_callback, user_data)
-
-# Set the initial state of the light, which also makes it discoverable
-my_light.off()
+        light = Light(mqtt, light_info, on_light_command)
+        await light.off()
 ```
 
 ### Media player
 
-The media player publishes playback state and metadata, and can receive commands from HA for the callbacks you provide.
+The media player publishes playback state and metadata, and only emits command topics for callbacks you provide.
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.media_player import MediaPlayer, MediaPlayerInfo
-from paho.mqtt.client import Client, MQTTMessage
-
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
-
-# Information about the media player
-media_player_info = MediaPlayerInfo(
-    name="living_room_player",
-    device_class="speaker",
-    source_list=["tv", "bluetooth"],
-)
-
-settings = Settings(mqtt=mqtt_settings, entity=media_player_info)
-
-# To receive media-player commands from HA, define callback functions:
-def play_callback(client: Client, user_data, message: MQTTMessage):
-    start_playback()
-    my_media_player.set_state("playing")
+from aiomqtt import Message
 
 
-def pause_callback(client: Client, user_data, message: MQTTMessage):
-    pause_playback()
-    my_media_player.set_state("paused")
+async def main() -> None:
+    media_player_info = MediaPlayerInfo(
+        name="living_room_player",
+        device_class="speaker",
+        source_list=["tv", "bluetooth"],
+    )
 
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        player: MediaPlayer
 
-callbacks = {
-    "play": play_callback,
-    "pause": pause_callback,
-}
+        async def play(sender: MediaPlayer, _message: Message) -> None:
+            start_playback()
+            await sender.set_state("playing")
 
-# Instantiate the media player
-my_media_player = MediaPlayer(settings, callbacks)
+        async def volume_set(sender: MediaPlayer, volume: float, _message: Message) -> None:
+            set_device_volume(volume)
+            await sender.set_volume(volume)
 
-# Publish the current playback state and metadata
-my_media_player.set_state("playing")
-my_media_player.set_title("Song Title")
-my_media_player.set_artist("Artist Name")
-my_media_player.set_volume(0.4)
+        player = MediaPlayer(
+            mqtt,
+            media_player_info,
+            {"play": play, "volume_set": volume_set},
+        )
+
+        await player.write_config()
+        await player.set_state("playing")
+        await player.set_title("Song Title")
+        await player.set_artist("Artist Name")
+        await player.set_volume(0.4)
 ```
 
 ### Number
 
-The number entity is similar to the text entity, but for a numeric value instead of a string.
-It is possible to act upon receiving changes in HA by defining a `callback` function, as the following example shows:
+The number entity is similar to the text entity, but for numeric values.
 
 ```py
 import logging
-from ha_mqtt_discoverable import Settings
+
+from aiomqtt import Message
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Number, NumberInfo
-from paho.mqtt.client import Client, MQTTMessage
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the `number` entity.
-number_info = NumberInfo(name="test", min=0, max=50, mode="slider", step=5)
+async def main() -> None:
+    number_info = NumberInfo(name="test", min=0, max=50, mode="slider", step=5)
 
-settings = Settings(mqtt=mqtt_settings, entity=number_info)
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        number: Number
 
-# To receive number updates from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    number = int(message.payload.decode())
-    logging.info(f"Received {number} from HA")
-    do_some_custom_thing(number)
-    # Send an MQTT message to confirm to HA that the number was changed
-    my_number.set_value(number)
+        async def on_number(sender: Number, message: Message) -> None:
+            value = float(message.payload.decode())
+            logging.info("Received %s from HA", value)
+            do_some_custom_thing(value)
+            await sender.set_value(value)
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
-# Instantiate the number
-my_number = Number(settings, my_callback, user_data)
-
-# Set the initial number displayed in HA UI, publishing an MQTT message that gets picked up by HA
-my_number.set_value(42.0)
+        number = Number(mqtt, number_info, on_number)
+        await number.set_value(42.0)
 ```
 
 ### Select
 
-The selection entity is a list of selectable options in homeassistant.
-It is possible to act upon reception of this 'command', by defining a `callback` function, as the following example shows:
+The selection entity is a list of selectable options in Home Assistant.
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Select, SelectInfo
-from paho.mqtt.client import Client, MQTTMessage
+from aiomqtt import Message
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the switch
-select_info = SelectInfo(name="test", options=["option1", "option2", "option3"])
+async def main() -> None:
+    select_info = SelectInfo(name="test", options=["option1", "option2", "option3"])
 
-settings = Settings(mqtt=mqtt_settings, entity=select_info)
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        async def on_select(sender: Select, message: Message) -> None:
+            payload = message.payload.decode()
+            do_something(payload)
+            await sender.set_options([payload, "option4", "option5"])
 
-# To receive state commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    payload = message.payload.decode()
-    do_something()
-
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
-# Instantiate the selection
-my_selection = Select(settings, my_callback, user_data)
-
-# Set the initial state of the selection, which also makes it discoverable
-opt = ["option3", "option4", "option5"]
-my_selection.set_options(opt)
+        selection = Select(mqtt, select_info, on_select)
+        await selection.set_options(["option3", "option4", "option5"])
 ```
 
 ### Sensor
@@ -507,183 +398,110 @@ my_selection.set_options(opt)
 The following example creates a sensor and sets its state:
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Sensor, SensorInfo
 
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
+async def main() -> None:
+    sensor_info = SensorInfo(
+        name="MyTemperatureSensor",
+        device_class="temperature",
+        unit_of_measurement="°C",
+    )
 
-# Information about the sensor
-sensor_info = SensorInfo(
-    name="MyTemperatureSensor",
-    device_class="temperature",
-    unit_of_measurement="°C",
-)
-
-settings = Settings(mqtt=mqtt_settings, entity=sensor_info)
-
-# Instantiate the sensor
-mysensor = Sensor(settings)
-
-# Change the state of the sensor, publishing an MQTT message that gets picked up by HA
-mysensor.set_state(20.5)
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        sensor = Sensor(mqtt, sensor_info)
+        await sensor.set_state(20.5)
 ```
 
 ### Switch
 
-The switch is similar to a _binary sensor_, but in addition to publishing state changes toward HA it can also receive 'commands' from HA that request a state change.
-It is possible to act upon reception of this 'command', by defining a `callback` function, as the following example shows:
+The switch is similar to a binary sensor, but it also receives commands from HA.
 
 ```py
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Switch, SwitchInfo
-from paho.mqtt.client import Client, MQTTMessage
+from aiomqtt import Message
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the switch
-switch_info = SwitchInfo(name="test")
+async def main() -> None:
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        switch: Switch
 
-settings = Settings(mqtt=mqtt_settings, entity=switch_info)
+        async def on_switch(sender: Switch, message: Message) -> None:
+            payload = message.payload.decode()
+            if payload == "ON":
+                turn_my_custom_thing_on()
+                await sender.on()
+            elif payload == "OFF":
+                turn_my_custom_thing_off()
+                await sender.off()
 
-# To receive state commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    payload = message.payload.decode()
-    if payload == "ON":
-        turn_my_custom_thing_on()
-        # Let HA know that the switch was successfully activated
-        my_switch.on()
-    elif payload == "OFF":
-        turn_my_custom_thing_off()
-        # Let HA know that the switch was successfully deactivated
-        my_switch.off()
-
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
-# Instantiate the switch
-my_switch = Switch(settings, my_callback, user_data)
-
-# Set the initial state of the switch, which also makes it discoverable
-my_switch.off()
+        switch = Switch(mqtt, SwitchInfo(name="test"), on_switch)
+        await switch.off()
 ```
 
 ### Text
 
-The text is an `helper entity`, showing an input field in the HA UI that the user can interact with.
-It is possible to act upon reception of the inputted text by defining a `callback` function, as the following example shows:
+The text entity shows an input field in the HA UI.
 
 ```py
 import logging
-from ha_mqtt_discoverable import Settings
+
+from aiomqtt import Message
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Text, TextInfo
-from paho.mqtt.client import Client, MQTTMessage
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the `text` entity
-text_info = TextInfo(name="test")
+async def main() -> None:
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        async def on_text(sender: Text, message: Message) -> None:
+            text = message.payload.decode()
+            logging.info("Received %s from HA", text)
+            do_some_custom_thing(text)
+            await sender.set_text(text)
 
-settings = Settings(mqtt=mqtt_settings, entity=text_info)
-
-# To receive text updates from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    text = message.payload.decode()
-    logging.info(f"Received {text} from HA")
-    do_some_custom_thing(text)
-    # Send an MQTT message to confirm to HA that the text was changed
-    my_text.set_text(text)
-
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
-# Instantiate the text
-my_text = Text(settings, my_callback, user_data)
-
-# Set the initial text displayed in HA UI, publishing an MQTT message that gets picked up by HA
-my_text.set_text("Some awesome text")
+        text = Text(mqtt, TextInfo(name="test"), on_text)
+        await text.set_text("Some awesome text")
 ```
 
 ### Update
 
-The update entity allows you to track software and firmware updates in Home Assistant.
-It can show current/latest versions, update progress, and receive install commands from HA.
-A `callback` function is required to handle install commands, as the following example shows:
+The update entity tracks software or firmware updates and optionally receives install commands.
 
 ```py
-import json
-from ha_mqtt_discoverable import Settings
+from ha_mqtt_discoverable import MqttSession, Settings
 from ha_mqtt_discoverable.sensors import Update, UpdateInfo
-from paho.mqtt.client import Client, MQTTMessage
+from aiomqtt import Message
 
-# Configure the required parameters for the MQTT broker
-mqtt_settings = Settings.MQTT(host="localhost")
 
-# Information about the update entity
-update_info = UpdateInfo(
-    name="my-software",
-    device_class="firmware",  # Optional: firmware, software, etc.
-    title="My Software",
-    release_summary="Bug fixes and improvements",
-    release_url="https://github.com/myproject/releases"
-)
+async def main() -> None:
+    update_info = UpdateInfo(
+        name="my-software",
+        device_class="firmware",
+        title="My Software",
+        release_summary="Bug fixes and improvements",
+        release_url="https://github.com/myproject/releases",
+    )
 
-settings = Settings(mqtt=mqtt_settings, entity=update_info)
+    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+        update: Update
 
-# To receive install commands from HA, define a callback function:
-def my_callback(client: Client, user_data, message: MQTTMessage):
-    payload = message.payload.decode()
-    if payload == update_info.payload_install:  # Default: "INSTALL"
-        # Start your update process
-        start_my_update_process()
-        
-        # Report progress to HA (optional)
-        my_update.set_progress(25)
-        continue_update_process()
-        
-        my_update.set_progress(75)
-        finalize_update_process()
-        
-        # Mark update complete with new version
-        my_update.complete_update("1.2.3")
+        async def install(sender: Update, message: Message) -> None:
+            if message.payload.decode() != update_info.payload_install:
+                return
+            start_my_update_process()
+            await sender.set_progress(25)
+            continue_update_process()
+            await sender.set_progress(75)
+            finalize_update_process()
+            await sender.set_state(installed="1.2.3", latest="1.2.3")
 
-# Define an optional object to be passed back to the callback
-user_data = "Some custom data"
-
-# Instantiate the update entity
-my_update = Update(settings, my_callback, user_data)
-
-# Set the current state (installed vs latest version), which also makes it discoverable
-my_update.set_state(installed="1.2.2", latest="1.2.3")  # Shows update available
-
-# You can also indicate no update is available
-# my_update.set_state(installed="1.2.3", latest="1.2.3")  # Up to date
+        update = Update(mqtt, update_info, install)
+        await update.set_state(installed="1.2.2", latest="1.2.3")
 ```
 
 ## FAQ
-
-### Using an existing MQTT client
-
-If you want to use an existing MQTT client for the connection, you can pass it to the `Settings` object:
-
-```py
-from ha_mqtt_discoverable import Settings
-from paho.mqtt.client import Client
-
-# Creating the MQTT client
-client = Client()
-# Doing other stuff with the client, like connecting to the broker
-# ...
-
-# Providing the client to the Settings object
-# In this case, no other MQTT settings are needed
-mqtt_settings = Settings.MQTT(client=client)
-
-# Continue with the rest of the code as usual
-```
 
 ### I'm having problems on 32-bit ARM
 

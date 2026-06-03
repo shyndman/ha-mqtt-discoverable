@@ -25,7 +25,6 @@ type SettingsDict = dict[str, SettingsValue]
 
 
 class _BaseCLISettings(Protocol):
-    debug: bool
     client_name: str | None
     device_class: str | None
     device_id: str | None
@@ -72,7 +71,6 @@ def load_mqtt_settings(path: str | None = None, cli: object = None) -> SettingsD
     settings = _read_settings(path)
     cli_settings = cast(_BaseCLISettings, cli)
 
-    settings["debug"] = cli_settings.debug
     # CLI args override stuff in the settings file
 
     # These are mandatory

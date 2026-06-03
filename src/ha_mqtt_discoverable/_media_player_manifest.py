@@ -24,7 +24,6 @@ class MediaPlayerTopicSpec:
     required_callback: str | None = None
     callback_style: MediaPlayerCallbackStyle | None = None
     payload_parser: MediaPlayerPayloadParser = MediaPlayerPayloadParser.STRING
-    adds_availability_payloads: bool = False
 
     @property
     def is_command(self) -> bool:
@@ -33,12 +32,6 @@ class MediaPlayerTopicSpec:
 
 MEDIA_PLAYER_TOPIC_SPECS: Final[tuple[MediaPlayerTopicSpec, ...]] = (
     MediaPlayerTopicSpec("state", "state_topic", always_include=True),
-    MediaPlayerTopicSpec(
-        "availability",
-        "availability_topic",
-        always_include=True,
-        adds_availability_payloads=True,
-    ),
     MediaPlayerTopicSpec("title", "media_title_topic", always_include=True),
     MediaPlayerTopicSpec("artist", "media_artist_topic", always_include=True),
     MediaPlayerTopicSpec("album", "media_album_name_topic", always_include=True),

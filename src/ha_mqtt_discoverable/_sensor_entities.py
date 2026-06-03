@@ -15,18 +15,18 @@
 #
 from __future__ import annotations
 
-import logging
 from typing import Annotated
 
 from pydantic import Field
 
 from ha_mqtt_discoverable._base import Discoverable
-from ha_mqtt_discoverable._models import EntityInfo
+from ha_mqtt_discoverable._logging import get_logger
+from ha_mqtt_discoverable._models import ExpiringEntityInfo
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
-class BinarySensorInfo(EntityInfo):
+class BinarySensorInfo(ExpiringEntityInfo):
     """Binary sensor specific information"""
 
     component: str = "binary_sensor"
@@ -41,19 +41,19 @@ class BinarySensorInfo(EntityInfo):
 
 
 class BinarySensor(Discoverable[BinarySensorInfo]):
-    def off(self):
+    async def off(self) -> None:
         """
         Set binary sensor to off
         """
-        self.update_state(state=False)
+        await self.update_state(state=False)
 
-    def on(self):
+    async def on(self) -> None:
         """
         Set binary sensor to on
         """
-        self.update_state(state=True)
+        await self.update_state(state=True)
 
-    def update_state(self, state: bool) -> None:
+    async def update_state(self, state: bool) -> None:
         """
         Update MQTT sensor state
 
@@ -62,12 +62,15 @@ class BinarySensor(Discoverable[BinarySensorInfo]):
         """
         state_message = self._entity.payload_on if state else self._entity.payload_off
         logger.info(
-            f"Setting {self._entity.name} to {state_message} using {self.state_topic}"
+            "setting binary sensor state",
+            entity=self._entity.name,
+            state=state_message,
+            topic=self.state_topic,
         )
-        self._state_helper(state=state_message)
+        await self._state_helper(state=state_message)
 
 
-class SensorInfo(EntityInfo):
+class SensorInfo(ExpiringEntityInfo):
     """Sensor specific information"""
 
     component: str = "sensor"
@@ -96,7 +99,7 @@ class SensorInfo(EntityInfo):
 
 
 class Sensor(Discoverable[SensorInfo]):
-    def set_state(
+    async def set_state(
         self, state: str | int | float, last_reset: str | None = None
     ) -> None:
         """
@@ -106,7 +109,16 @@ class Sensor(Discoverable[SensorInfo]):
             state(str): What state to set the sensor to
             last_reset(str): ISO 8601-formatted string when an accumulating sensor was initialized
         """
-        logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
+        logger.info(
+            "setting sensor state",
+            entity=self._entity.name,
+            state=state,
+            topic=self.state_topic,
+        )
         if last_reset:
-            logger.info("Setting last_reset to " + last_reset)
-        self._state_helper(str(state), last_reset=last_reset)
+            logger.info(
+                "setting sensor last reset",
+                entity=self._entity.name,
+                last_reset=last_reset,
+            )
+        await self._state_helper(str(state), last_reset=last_reset)

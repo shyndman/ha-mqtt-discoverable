@@ -15,37 +15,36 @@
 from importlib import metadata
 from typing import cast
 
-from ha_mqtt_discoverable._base import (
-    Discoverable,
-    MessageCallback,
-    OnConnectCallback,
-    Subscriber,
-    TlsSetFunction,
-)
+from ha_mqtt_discoverable._base import Discoverable, Subscriber
 from ha_mqtt_discoverable._config import CONFIGURATION_KEY_NAMES
 from ha_mqtt_discoverable._models import (
     DeviceInfo,
     EntityInfo,
     EntityType,
     Settings,
-    UserDataT,
     ValidatorValues,
+)
+from ha_mqtt_discoverable._session import (
+    CommandCallback,
+    CommandPayloadParser,
+    MqttSession,
+    ParsedCommandCallback,
 )
 
 __version__ = metadata.version(cast(str, __package__))
 
 __all__ = [
     "CONFIGURATION_KEY_NAMES",
+    "CommandCallback",
+    "CommandPayloadParser",
     "DeviceInfo",
     "Discoverable",
     "EntityInfo",
     "EntityType",
-    "MessageCallback",
-    "OnConnectCallback",
+    "MqttSession",
+    "ParsedCommandCallback",
     "Settings",
     "Subscriber",
-    "TlsSetFunction",
-    "UserDataT",
     "ValidatorValues",
     "__version__",
 ]

@@ -17,15 +17,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import json
-import logging
 from typing import override
 
 from pydantic import Field
 
 from ha_mqtt_discoverable._base import Subscriber
+from ha_mqtt_discoverable._logging import get_logger
 from ha_mqtt_discoverable._models import EntityInfo
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SwitchInfo(EntityInfo):
@@ -55,23 +55,29 @@ class Switch(Subscriber[SwitchInfo]):
     https://www.home-assistant.io/integrations/switch.mqtt
     """
 
-    def off(self):
+    async def off(self) -> None:
         """
         Set switch to off
         """
         logger.info(
-            f"Setting {self._entity.name} to {self._entity.payload_off} using {self.state_topic}"
+            "setting switch state",
+            entity=self._entity.name,
+            state=self._entity.payload_off,
+            topic=self.state_topic,
         )
-        self._state_helper(state=self._entity.payload_off)
+        await self._state_helper(state=self._entity.payload_off)
 
-    def on(self):
+    async def on(self) -> None:
         """
         Set switch to on
         """
         logger.info(
-            f"Setting {self._entity.name} to {self._entity.payload_on} using {self.state_topic}"
+            "setting switch state",
+            entity=self._entity.name,
+            state=self._entity.payload_on,
+            topic=self.state_topic,
         )
-        self._state_helper(state=self._entity.payload_on)
+        await self._state_helper(state=self._entity.payload_on)
 
 
 class LightInfo(EntityInfo):
@@ -118,25 +124,25 @@ class Light(Subscriber[LightInfo]):
     https://www.home-assistant.io/integrations/light.mqtt
     """
 
-    def on(self) -> None:
+    async def on(self) -> None:
         """
         Set light to on
         """
         state_payload = {
             "state": self._entity.payload_on,
         }
-        self._update_json_state(state_payload)
+        await self._update_json_state(state_payload)
 
-    def off(self) -> None:
+    async def off(self) -> None:
         """
         Set light to off
         """
         state_payload = {
             "state": self._entity.payload_off,
         }
-        self._update_json_state(state_payload)
+        await self._update_json_state(state_payload)
 
-    def brightness(self, brightness: int) -> None:
+    async def brightness(self, brightness: int) -> None:
         """
         Set brightness of the light
 
@@ -153,9 +159,9 @@ class Light(Subscriber[LightInfo]):
             "state": self._entity.payload_on,
         }
 
-        self._update_json_state(state_payload)
+        await self._update_json_state(state_payload)
 
-    def color(self, color_mode: str, color: Mapping[str, object]) -> None:
+    async def color(self, color_mode: str, color: Mapping[str, object]) -> None:
         """
         Set color of the light.
         NOTE: Make sure color formatting conforms to color mode, it is up to the caller to make sure
@@ -184,9 +190,9 @@ class Light(Subscriber[LightInfo]):
             "color": color,
             "state": self._entity.payload_on,
         }
-        self._update_json_state(state_payload)
+        await self._update_json_state(state_payload)
 
-    def effect(self, effect: str) -> None:
+    async def effect(self, effect: str) -> None:
         """
         Enable effect of the light
 
@@ -208,19 +214,26 @@ class Light(Subscriber[LightInfo]):
             "effect": effect,
             "state": self._entity.payload_on,
         }
-        self._update_json_state(state_payload)
+        await self._update_json_state(state_payload)
 
-    def _update_json_state(self, state: Mapping[str, object]) -> None:
+    async def _update_json_state(self, state: Mapping[str, object]) -> None:
         """
         Update MQTT sensor state
 
         Args:
             state(Dict[str, Any]): What state to set the light to
         """
-        logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
+        logger.info(
+            "setting light state",
+            entity=self._entity.name,
+            state=state,
+            topic=self.state_topic,
+        )
         json_state = json.dumps(state)
         retain = True if self._entity.retain is None else self._entity.retain
-        _ = self._state_helper(state=json_state, topic=self.state_topic, retain=retain)
+        await self._state_helper(
+            state=json_state, topic=self.state_topic, retain=retain
+        )
 
 
 class CoverInfo(EntityInfo):
@@ -262,38 +275,42 @@ class Cover(Subscriber[CoverInfo]):
     https://www.home-assistant.io/integrations/cover.mqtt
     """
 
-    def open(self) -> None:
+    async def open(self) -> None:
         """Set cover state to open"""
-        self._update_state(self._entity.state_open)
+        await self._update_state(self._entity.state_open)
 
-    def closed(self) -> None:
+    async def closed(self) -> None:
         """Set cover state to closed"""
-        self._update_state(self._entity.state_closed)
+        await self._update_state(self._entity.state_closed)
 
-    def closing(self) -> None:
+    async def closing(self) -> None:
         """Set cover state to closing"""
-        self._update_state(self._entity.state_closing)
+        await self._update_state(self._entity.state_closing)
 
-    def opening(self) -> None:
+    async def opening(self) -> None:
         """Set cover state to opening"""
-        self._update_state(self._entity.state_opening)
+        await self._update_state(self._entity.state_opening)
 
-    def stopped(self) -> None:
+    async def stopped(self) -> None:
         """Set cover state to stopped"""
-        self._update_state(self._entity.state_stopped)
+        await self._update_state(self._entity.state_stopped)
 
     @override
-    def _update_state(self, state: str | float | int | None) -> None:
+    async def _update_state(self, state: str | float | int | None) -> None:
         """
         Update MQTT sensor state
 
         Args:
             state(str): What state to set the cover to
         """
-        print(f"State: {state}")
-        logger.info(f"Setting {self._entity.name} to {state} using {self.state_topic}")
+        logger.info(
+            "setting cover state",
+            entity=self._entity.name,
+            state=state,
+            topic=self.state_topic,
+        )
         retain = True if self._entity.retain is None else self._entity.retain
-        self._state_helper(state=state, topic=self.state_topic, retain=retain)
+        await self._state_helper(state=state, topic=self.state_topic, retain=retain)
 
 
 class ButtonInfo(EntityInfo):
@@ -336,7 +353,7 @@ class Text(Subscriber[TextInfo]):
     https://www.home-assistant.io/integrations/text.mqtt/
     """
 
-    def set_text(self, text: str) -> None:
+    async def set_text(self, text: str) -> None:
         """
         Update the text displayed by this sensor. Check that it is of acceptable length.
 
@@ -349,8 +366,13 @@ class Text(Subscriber[TextInfo]):
                 f"Text is not within configured length boundaries {bound}"
             )
 
-        logger.info(f"Setting {self._entity.name} to {text} using {self.state_topic}")
-        self._state_helper(str(text))
+        logger.info(
+            "setting text state",
+            entity=self._entity.name,
+            text=text,
+            topic=self.state_topic,
+        )
+        await self._state_helper(str(text))
 
 
 class NumberInfo(EntityInfo):
@@ -387,7 +409,7 @@ class Number(Subscriber[NumberInfo]):
     https://www.home-assistant.io/integrations/number.mqtt/
     """
 
-    def set_value(self, value: float) -> None:
+    async def set_value(self, value: float) -> None:
         """
         Update the numeric value. Raises an error if not within the acceptable range.
 
@@ -398,8 +420,13 @@ class Number(Subscriber[NumberInfo]):
             bound = f"[{self._entity.min}, {self._entity.max}]"
             raise RuntimeError(f"Value is not within configured boundaries {bound}")
 
-        logger.info(f"Setting {self._entity.name} to {value} using {self.state_topic}")
-        self._state_helper(value)
+        logger.info(
+            "setting number state",
+            entity=self._entity.name,
+            value=value,
+            topic=self.state_topic,
+        )
+        await self._state_helper(value)
 
 
 class SelectInfo(EntityInfo):
@@ -423,7 +450,7 @@ class Select(Subscriber[SelectInfo]):
     https://www.home-assistant.io/integrations/select.mqtt/
     """
 
-    def set_options(self, opt: list[str]) -> None:
+    async def set_options(self, opt: list[str]) -> None:
         """
         Update the selectable options.
 
@@ -433,5 +460,10 @@ class Select(Subscriber[SelectInfo]):
         if not opt:
             raise RuntimeError("Image URL cannot be empty")
 
-        logger.info(f"Publishing options {opt} to {self._entity.options}")
-        self._state_helper(json.dumps(opt))
+        logger.info(
+            "publishing select options",
+            entity=self._entity.name,
+            options=opt,
+            topic=self.state_topic,
+        )
+        await self._state_helper(json.dumps(opt))

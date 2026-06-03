@@ -1,6 +1,6 @@
 [project]
 name = "ha-mqtt-discoverable"
-version = "0.0.0"
+version = "1.0.0"
 description = "Python library for creating MQTT entities compatible with Home Assistant"
 readme = "README.md"
 authors = [
@@ -13,9 +13,10 @@ maintainers = [
 requires-python = ">=3.13"
 dependencies = [
     "gitlike-commands>=0.3.1",
-    "paho-mqtt>=2.1.0",
+    "aiomqtt>=2.5,<3",
     "pyaml>=26.2.1",
     "pydantic>=2.13.4",
+    "structlog>=25.0",
 ]
 
 [build-system]

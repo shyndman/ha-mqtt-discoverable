@@ -46,3 +46,8 @@ def build_state_topic(
 
 def build_command_topic(state_prefix: str, entity_topic: str) -> str:
     return build_state_topic(state_prefix, entity_topic, "command")
+
+
+def build_status_topic(state_prefix: str, client_name: str) -> str:
+    """Session-level status topic carrying the publisher's online/offline (LWT) state."""
+    return f"{state_prefix}/{client_name}/status"

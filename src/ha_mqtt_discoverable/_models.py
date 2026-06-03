@@ -12,10 +12,9 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from typing import ClassVar, Generic, TypeVar, cast
+from typing import TypeVar, cast
 
-import paho.mqtt.client as mqtt
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, model_validator
 
 type ValidatorValues = dict[str, object]
 
@@ -78,10 +77,6 @@ class EntityInfo(BaseModel):
     """Flag which defines if the entity should be enabled when first added."""
     entity_category: str | None = None
     """Classification of a non-primary entity."""
-    expire_after: int | None = None
-    """If set, it defines the number of seconds after the sensor’s state expires,
-        if it’s not updated. After expiry, the sensor’s state becomes unavailable.
-            Default the sensors state never expires."""
     force_update: bool | None = None
     """Sends update events even if the value hasn’t changed.    Useful if you want to have meaningful value graphs in history."""
     icon: str | None = None
@@ -110,22 +105,37 @@ class EntityInfo(BaseModel):
         return validator_values
 
 
+class ExpiringEntityInfo(EntityInfo):
+    """Mixin for entity types that support state expiry.
+
+    Home Assistant only implements `expire_after` for the `sensor` and
+    `binary_sensor` platforms, so the field lives here rather than on the base
+    `EntityInfo`."""
+
+    expire_after: int | None = None
+    """If set, it defines the number of seconds after the sensor's state expires,
+        if it's not updated. After expiry, the sensor's state becomes unavailable.
+            Default the sensors state never expires."""
+
+
 EntityType = TypeVar("EntityType", bound=EntityInfo)
-UserDataT = TypeVar("UserDataT")
 
 
-class Settings(BaseModel, Generic[EntityType]):
+class Settings:
     class MQTT(BaseModel):
         """Connection settings for the MQTT broker"""
 
-        model_config: ClassVar[ConfigDict] = ConfigDict(arbitrary_types_allowed=True)
-
-        host: str | None = "homeassistant"
-        port: int | None = 1883
+        host: str = "homeassistant"
+        port: int = 1883
         username: str | None = None
         password: str | None = None
-        client_name: str | None = None
-        use_tls: bool | None = False
+        client_name: str
+        """A stable, unique-per-project identifier for this publisher. Required: it
+        names the session-level availability/status topic ({state_prefix}/{client_name}/status)
+        whose retained Last-Will message marks connection-dependent entities offline when the
+        publisher dies. Two projects must use distinct client_names to avoid clobbering each
+        other's availability."""
+        use_tls: bool = False
         tls_key: str | None = None
         tls_certfile: str | None = None
         tls_ca_cert: str | None = None
@@ -134,15 +144,3 @@ class Settings(BaseModel, Generic[EntityType]):
         """The root of the topic tree where HA is listening for messages"""
         state_prefix: str = "hmd"
         """The root of the topic tree ha-mqtt-discovery publishes its state messages"""
-
-        client: mqtt.Client | None = None
-        """Optional MQTT client to use for the connection. If provided, most other settings are ignored."""
-
-    mqtt: MQTT
-    """Connection to MQTT broker"""
-    entity: EntityType
-    debug: bool = False
-    """Print out the message that would be sent over MQTT"""
-    manual_availability: bool = False
-    """If true, the entity `availability` inside HA must be manually managed
-    using the `set_availability()` method"""

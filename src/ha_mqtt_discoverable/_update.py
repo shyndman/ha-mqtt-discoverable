@@ -16,16 +16,18 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-import logging
 from typing import Annotated, NotRequired, override
 
 from pydantic import Field, HttpUrl, TypeAdapter, ValidationError
 from typing_extensions import TypedDict
 
-from ha_mqtt_discoverable._base import MessageCallback, Subscriber
-from ha_mqtt_discoverable._models import EntityInfo, Settings
+from ha_mqtt_discoverable._base import Subscriber
+from ha_mqtt_discoverable._logging import get_logger
+from ha_mqtt_discoverable._models import EntityInfo
+from ha_mqtt_discoverable._session import CommandCallback, SessionLike
+from ha_mqtt_discoverable._topic_paths import build_state_topic
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class UpdateInfo(EntityInfo):
@@ -97,7 +99,7 @@ class Update(Subscriber[UpdateInfo]):
     Example:
         Basic usage with device context and rich metadata:
 
-        >>> from ha_mqtt_discoverable import Settings, DeviceInfo
+        >>> from ha_mqtt_discoverable import DeviceInfo, MqttSession, Settings
         >>> from ha_mqtt_discoverable.sensors import Update, UpdateInfo
         >>>
         >>> # Define device info
@@ -119,85 +121,85 @@ class Update(Subscriber[UpdateInfo]):
         ...     entity_picture="https://example.com/device.png"
         ... )
         >>>
-        >>> # Setup MQTT settings
-        >>> mqtt_settings = Settings.MQTT(host="localhost")
-        >>> settings = Settings(mqtt=mqtt_settings, entity=update_info)
-        >>>
         >>> # Define install callback
-        >>> def handle_install(client, user_data, message):
+        >>> async def handle_install(sender, message):
         ...     print("Install command received!")
         ...     # Start your update process here
-        ...     update.set_progress(0)
+        ...     await sender.set_progress(0)
         ...     # ... perform update steps ...
-        ...     update.set_progress(50)
-        ...     update.set_progress(100)
+        ...     await sender.set_progress(50)
+        ...     await sender.set_progress(100)
         >>>
-        >>> # Create update entity
-        >>> update = Update(settings, handle_install)
-        >>>
-        >>> # Rich state with metadata (publishes validated JSON)
-        >>> update.set_state(
+        >>> async with MqttSession(Settings.MQTT(host="localhost")) as mqtt:
+        ...     update = Update(mqtt, update_info, handle_install)
+        ...     await update.set_state(
         ...     installed="1.2.3",
         ...     latest="1.2.4",
         ...     title="Major Security Update",
         ...     release_summary="Critical security fixes and performance improvements",
         ...     release_url="https://example.com/releases/1.2.4",
         ...     entity_picture="https://example.com/update-icon.png"
-        ... )
-        >>>
-        >>> # Update in progress with automatic in_progress=True
-        >>> update.set_state(installed="1.2.3", latest="1.2.4", progress=25)
-        >>>
-        >>> # Simple progress update
-        >>> update.set_progress(75)  # Automatically sets in_progress=True
+        ...     )
+        ...     await update.set_state(installed="1.2.3", latest="1.2.4", progress=25)
+        ...     await update.set_progress(75)  # Automatically sets in_progress=True
     """
 
     _latest_version_topic: str
 
     def __init__(
         self,
-        settings: Settings[UpdateInfo],
-        command_callback: MessageCallback[object] | None = None,
-        user_data: object | None = None,
+        session: SessionLike,
+        entity: UpdateInfo,
+        command_callback: CommandCallback[Update] | None = None,
     ) -> None:
         """
         Initialize the Update entity.
 
         Args:
-            settings: Settings for the entity
-            command_callback: Optional callback function invoked when install command is received.
+            session: Active MQTT session for the entity
+            entity: Entity configuration
+            command_callback: Optional async callback invoked when install command is received.
                 If None, no command topic will be published and the entity will be read-only.
-            user_data: Optional user data passed to the callback
         """
-        super().__init__(settings, command_callback, user_data)
+        super().__init__(session, entity, command_callback)
 
-        if self._entity.latest_version_topic:
-            self._latest_version_topic = self._entity.latest_version_topic
-        else:
-            self._latest_version_topic = f"{self._settings.mqtt.state_prefix}/{self._entity_topic}/latest_version"
+        self._latest_version_topic = (
+            self._entity.latest_version_topic
+            or build_state_topic(
+                session.state_prefix, self._entity_topic, "latest_version"
+            )
+        )
 
-    def set_installed_version(self, version: str) -> None:
+    async def set_installed_version(self, version: str) -> None:
         """
         Update the installed version.
 
         Args:
             version: The currently installed version
         """
-        logger.info(f"Setting installed version for {self._entity.name} to {version}")
+        logger.info(
+            "setting installed version",
+            entity=self._entity.name,
+            version=version,
+        )
         state: UpdateStatePayload = {"installed_version": version, "in_progress": False}
-        self._update_state(state)
+        await self._update_state(state)
 
-    def set_latest_version(self, version: str) -> None:
+    async def set_latest_version(self, version: str) -> None:
         """
         Update the latest available version.
 
         Args:
             version: The latest available version
         """
-        logger.info(f"Setting latest version for {self._entity.name} to {version}")
-        self._state_helper(version, topic=self._latest_version_topic)
+        logger.info(
+            "setting latest version",
+            entity=self._entity.name,
+            version=version,
+        )
+        await self._state_helper(version, topic=self._latest_version_topic)
 
-    def set_progress(self, progress: int) -> None:
+    async def set_progress(self, progress: int) -> None:
         """
         Update the installation progress.
 
@@ -208,10 +210,14 @@ class Update(Subscriber[UpdateInfo]):
             raise ValueError(f"Progress must be between 0 and 100, got {progress}")
 
         state: UpdateStatePayload = {"in_progress": True, "update_percentage": progress}
-        logger.info(f"Setting update progress for {self._entity.name} to {progress}%")
-        self._update_state(state)
+        logger.info(
+            "setting update progress",
+            entity=self._entity.name,
+            progress=progress,
+        )
+        await self._update_state(state)
 
-    def set_state(
+    async def set_state(
         self,
         *,
         installed: str,
@@ -239,9 +245,9 @@ class Update(Subscriber[UpdateInfo]):
             entity_picture: Picture URL for the entity (optional)
 
         Example:
-            update.set_state(installed="1.0.0", latest="1.1.0")
-            update.set_state(installed="1.0.0", latest="1.1.0", in_progress=True, progress=50)
-            update.set_state(installed="1.0.0", latest="1.1.0", title="Major Update", release_summary="Bug fixes")
+            await update.set_state(installed="1.0.0", latest="1.1.0")
+            await update.set_state(installed="1.0.0", latest="1.1.0", in_progress=True, progress=50)
+            await update.set_state(installed="1.0.0", latest="1.1.0", title="Major Update", release_summary="Bug fixes")
         """
         state: dict[str, object] = {"installed_version": installed}
 
@@ -264,11 +270,13 @@ class Update(Subscriber[UpdateInfo]):
 
         state["in_progress"] = in_progress
 
-        logger.info(f"Setting complete state for {self._entity.name}: {state}")
-        self._update_state(state)
+        logger.info(
+            "setting complete update state", entity=self._entity.name, state=state
+        )
+        await self._update_state(state)
 
     @override
-    def _update_state(
+    async def _update_state(
         self, state: str | float | int | None | Mapping[str, object]
     ) -> None:
         """
@@ -289,10 +297,18 @@ class Update(Subscriber[UpdateInfo]):
             json_state = update_state_validator.dump_json(validated_payload).decode(
                 "utf-8"
             )
-            logger.debug(f"Validated update state payload: {validated_payload}")
-            self._state_helper(json_state)
+            logger.debug(
+                "validated update state payload",
+                entity=self._entity.name,
+                payload=validated_payload,
+            )
+            await self._state_helper(json_state)
         except ValidationError as e:
-            logger.error(f"Invalid update state payload for {self._entity.name}: {e}")
+            logger.error(
+                "invalid update state payload",
+                entity=self._entity.name,
+                error=str(e),
+            )
             raise ValueError(f"Invalid update state payload: {e}") from e
 
     @override

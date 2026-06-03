@@ -15,15 +15,15 @@
 #
 from __future__ import annotations
 
-import logging
 from typing import override
 
 from pydantic import model_validator
 
 from ha_mqtt_discoverable._base import Discoverable, Subscriber
+from ha_mqtt_discoverable._logging import get_logger
 from ha_mqtt_discoverable._models import DeviceInfo, EntityInfo
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class DeviceTriggerInfo(EntityInfo):
@@ -66,7 +66,7 @@ class DeviceTrigger(Discoverable[DeviceTriggerInfo]):
         }
         return config | topics
 
-    def trigger(self, payload: str | None = None):
+    async def trigger(self, payload: str | None = None) -> None:
         """
         Generate a device trigger event
 
@@ -74,7 +74,7 @@ class DeviceTrigger(Discoverable[DeviceTriggerInfo]):
             payload: custom payload to send in the trigger topic
 
         """
-        return self._state_helper(payload, self.state_topic, retain=False)
+        await self._state_helper(payload, self.state_topic, retain=False)
 
 
 class CameraInfo(EntityInfo):
@@ -84,19 +84,11 @@ class CameraInfo(EntityInfo):
 
     component: str = "camera"
     """The component type is 'camera' for this entity."""
-    availability_topic: str | None = None
-    """The MQTT topic subscribed to publish the camera availability."""
-    payload_available: str | None = "online"
-    """Payload to publish to indicate the camera is online."""
-    payload_not_available: str | None = "offline"
-    """Payload to publish to indicate the camera is offline."""
     topic: str | None = None
     """
     The MQTT topic to subscribe to receive an image URL. A url_template option can extract the URL from the message.
     The content_type will be derived from the image when downloaded.
     """
-    retain: bool | None = None
-    """If the published message should have the retain flag on or not."""
 
 
 class Camera(Subscriber[CameraInfo]):
@@ -105,7 +97,7 @@ class Camera(Subscriber[CameraInfo]):
     https://www.home-assistant.io/integrations/image.mqtt/
     """
 
-    def set_topic(self, image_topic: str) -> None:
+    async def set_topic(self, image_topic: str) -> None:
         """
         Update the camera state (image URL).
 
@@ -116,32 +108,12 @@ class Camera(Subscriber[CameraInfo]):
             raise RuntimeError("Image topic cannot be empty")
 
         logger.info(
-            f"Publishing camera image topic {image_topic} to {self._entity.topic}"
+            "publishing camera image topic",
+            entity=self._entity.name,
+            image_topic=image_topic,
+            topic=self._entity.topic,
         )
-        self._state_helper(image_topic)
-
-    @override
-    def set_availability(self, availability: bool) -> None:
-        """
-        Update the camera availability status.
-
-        Args:
-            availability (bool): Whether the camera is available or not.
-        """
-        availability_topic = self._entity.availability_topic
-        if availability_topic is None:
-            raise RuntimeError("Camera availability topic is not configured")
-
-        payload = (
-            self._entity.payload_available or "online"
-            if availability
-            else self._entity.payload_not_available or "offline"
-        )
-        retain = True if self._entity.retain is None else self._entity.retain
-        logger.info(
-            f"Setting camera availability to {payload} using {availability_topic}"
-        )
-        self.mqtt_client.publish(availability_topic, payload, retain=retain)
+        await self._state_helper(image_topic)
 
 
 class ImageInfo(EntityInfo):
@@ -151,19 +123,11 @@ class ImageInfo(EntityInfo):
 
     component: str = "image"
     """The component type is 'image' for this entity."""
-    availability_topic: str | None = None
-    """The MQTT topic subscribed to publish the image availability."""
-    payload_available: str | None = "online"
-    """Payload to publish to indicate the image is online."""
-    payload_not_available: str | None = "offline"
-    """Payload to publish to indicate the image is offline."""
     url_topic: str | None = None
     """
     The MQTT topic to subscribe to receive an image URL. A url_template option can extract the URL from the message.
     The content_type will be derived from the image when downloaded.
     """
-    retain: bool | None = None
-    """If the published message should have the retain flag on or not."""
 
 
 class Image(Discoverable[ImageInfo]):
@@ -172,7 +136,7 @@ class Image(Discoverable[ImageInfo]):
     https://www.home-assistant.io/integrations/image.mqtt/
     """
 
-    def set_url(self, image_url: str) -> None:
+    async def set_url(self, image_url: str) -> None:
         """
         Update the camera state (image URL).
 
@@ -182,5 +146,10 @@ class Image(Discoverable[ImageInfo]):
         if not image_url:
             raise RuntimeError("Image URL cannot be empty")
 
-        logger.info(f"Publishing image URL {image_url} to {self._entity.url_topic}")
-        self._state_helper(image_url, self._entity.url_topic)
+        logger.info(
+            "publishing image url",
+            entity=self._entity.name,
+            image_url=image_url,
+            topic=self._entity.url_topic,
+        )
+        await self._state_helper(image_url, self._entity.url_topic)

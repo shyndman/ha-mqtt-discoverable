@@ -130,7 +130,7 @@ class Update(Subscriber[UpdateInfo]):
         ...     await sender.set_progress(50)
         ...     await sender.set_progress(100)
         >>>
-        >>> async with MqttSession(Settings.MQTT(host="localhost")) as mqtt:
+        >>> async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="test")) as mqtt:
         ...     update = Update(mqtt, update_info, handle_install)
         ...     await update.set_state(
         ...     installed="1.2.3",

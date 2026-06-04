@@ -14,7 +14,9 @@ class DiscoverableHarness(Discoverable[EntityInfo]):
 
 
 def test_topics():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     entity = EntityInfo(name="test", component="binary_sensor")
     discoverable = DiscoverableHarness(session, entity)
 
@@ -24,7 +26,9 @@ def test_topics():
 
 
 def test_topics_with_device():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     entity = EntityInfo(
         name="test",
         component="binary_sensor",
@@ -44,7 +48,9 @@ def test_topics_with_device():
 
 
 def test_generate_config():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -59,7 +65,9 @@ def test_generate_config():
 
 
 def test_generate_config_connection_dependent_availability():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -76,7 +84,9 @@ def test_generate_config_connection_dependent_availability():
 
 
 def test_generate_config_connection_independent_availability():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -91,7 +101,9 @@ def test_generate_config_connection_independent_availability():
 
 
 def test_multiple_entities_publish_distinct_availability_topics():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     first = DiscoverableHarness(
         session,
         EntityInfo(name="first", component="binary_sensor"),
@@ -118,7 +130,9 @@ def test_multiple_entities_publish_distinct_availability_topics():
 
 
 def test_write_config_and_state_publish_retained():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -139,7 +153,9 @@ def test_write_config_and_state_publish_retained():
 
 
 def test_write_config_only_marks_success_after_publish() -> None:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -154,7 +170,9 @@ def test_write_config_only_marks_success_after_publish() -> None:
 
 
 def test_delete_publishes_empty_retained_config():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -169,7 +187,9 @@ def test_delete_publishes_empty_retained_config():
 
 
 def test_set_attributes_publishes_json_payload():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -184,7 +204,9 @@ def test_set_attributes_publishes_json_payload():
 
 
 def test_available_defaults_true_and_tracks_set_available():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),
@@ -200,7 +222,9 @@ def test_available_defaults_true_and_tracks_set_available():
 
 
 def test_set_available_publishes_online_and_offline():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     discoverable = DiscoverableHarness(
         session,
         EntityInfo(name="test", component="binary_sensor"),

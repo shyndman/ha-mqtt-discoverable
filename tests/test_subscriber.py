@@ -21,7 +21,9 @@ def command_topic(subscriber: Subscriber[EntityInfo]) -> str:
 
 
 def test_generate_config_includes_command_topic_when_callback_present():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     subscriber = Subscriber(
         session,
         EntityInfo(name="test", component="button"),
@@ -36,7 +38,9 @@ def test_generate_config_includes_command_topic_when_callback_present():
 
 
 def test_generate_config_omits_command_topic_without_callback():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     subscriber = Subscriber(session, EntityInfo(name="test", component="button"))
 
     config = subscriber.generate_config()
@@ -51,7 +55,7 @@ def test_command_callback_receives_sender_and_message():
         observed: dict[str, str] = {}
 
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test")
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
         ) as session:
             subscriber: Subscriber[EntityInfo]
 
@@ -87,7 +91,7 @@ def test_callback_failure_poisons_session():
 
         with pytest.raises(RuntimeError, match="boom"):
             async with MqttSession(
-                Settings.MQTT(host="localhost", client_name="test")
+                Settings.MQTT(url="mqtt://localhost", client_name="test")
             ) as session:
 
                 async def callback(

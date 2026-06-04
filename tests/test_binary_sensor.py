@@ -9,7 +9,9 @@ from ._session_stub import RecordingSession
 
 @pytest.fixture(name="sensor")
 def binary_sensor() -> BinarySensor:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     sensor_info = BinarySensorInfo(name="test", payload_on="on")
     return BinarySensor(session, sensor_info)
 
@@ -20,7 +22,9 @@ def test_required_config(sensor: BinarySensor):
 
 @pytest.mark.parametrize("payload_on", ["on", "custom_on"])
 def test_generate_config(payload_on: str):
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     sensor = BinarySensor(session, BinarySensorInfo(name="test", payload_on=payload_on))
 
     config = sensor.generate_config()

@@ -17,7 +17,9 @@ effects = ["rainbow", "mycustomeffect"]
 
 @pytest.fixture
 def light() -> Light:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     sensor_info = LightInfo(
         name="test",
         color_mode=True,
@@ -29,7 +31,9 @@ def light() -> Light:
 
 
 def test_required_config():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     sensor = Light(session, LightInfo(name="test"), noop_command_callback)
     assert sensor is not None
 

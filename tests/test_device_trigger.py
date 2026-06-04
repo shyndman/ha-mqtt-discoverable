@@ -9,7 +9,9 @@ from ._session_stub import RecordingSession
 
 @pytest.fixture(name="device_trigger")
 def device_trigger() -> DeviceTrigger:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     device_info = DeviceInfo(name="test", identifiers="id")
     sensor_info = DeviceTriggerInfo(
         name="test",

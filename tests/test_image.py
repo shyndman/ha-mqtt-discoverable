@@ -17,7 +17,9 @@ def image_info() -> ImageInfo:
 
 @pytest.fixture
 def image(image_info: ImageInfo) -> Image:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     return Image(session, image_info)
 
 
@@ -31,7 +33,9 @@ def test_generate_config(image: Image, image_info: ImageInfo):
 
 
 def test_set_url() -> None:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     entity = Image(session, ImageInfo(name="test", url_topic=IMAGE_URL_TOPIC))
 
     asyncio.run(entity.set_url("http://camera.local/latest.jpg"))

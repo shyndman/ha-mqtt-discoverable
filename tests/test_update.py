@@ -73,7 +73,9 @@ def make_update() -> UpdateFactory:
         with_callback: bool = True,
         **kwargs: Unpack[MakeUpdateKwargs],
     ) -> tuple[RecordingSession, Update]:
-        session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+        session = RecordingSession(
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
+        )
         update_info = UpdateInfo(
             name=name,
             device=device,

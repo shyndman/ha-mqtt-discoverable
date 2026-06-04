@@ -81,7 +81,9 @@ def config_string(config: dict[str, object], key: str) -> str:
 
 
 def test_minimal_player_omits_optional_topics():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     player = make_player(session)
     config = player.generate_config()
 
@@ -99,7 +101,9 @@ def test_minimal_player_omits_optional_topics():
 
 
 def test_callback_gated_topics_stay_in_lockstep():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     player = make_player(
         session,
         name="partial",
@@ -125,7 +129,7 @@ def test_callback_gated_topics_stay_in_lockstep():
 
 def test_generate_config_with_device_includes_clean_topic_path():
     session = RecordingSession(
-        Settings.MQTT(host="localhost", state_prefix="ha", client_name="test")
+        Settings.MQTT(url="mqtt://localhost", state_prefix="ha", client_name="test")
     )
     player = make_player(
         session,
@@ -148,7 +152,9 @@ def test_generate_config_with_device_includes_clean_topic_path():
 
 
 def test_state_setters_publish_retained_state():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     player = make_player(
         session,
         callbacks={
@@ -180,7 +186,7 @@ def test_command_routing_uses_sender_first_callback():
         observed: dict[str, str] = {}
 
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test")
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
         ) as session:
             player: MediaPlayer
 
@@ -214,7 +220,7 @@ def test_volume_set_callback_receives_float_payload():
 
     async def scenario() -> None:
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test")
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
         ) as session:
             player = MediaPlayer(
                 session,
@@ -245,7 +251,7 @@ def test_shuffle_set_callback_receives_bool_payload():
         observed: list[bool] = []
 
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test")
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
         ) as session:
 
             async def shuffle_callback(
@@ -276,7 +282,7 @@ def test_play_media_callback_receives_parsed_payload():
         observed: dict[str, object] = {}
 
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test")
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
         ) as session:
 
             async def play_media_callback(
@@ -315,7 +321,7 @@ def test_invalid_parsed_payload_does_not_invoke_callback():
         called = asyncio.Event()
 
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test")
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
         ) as session:
 
             async def volume_callback(

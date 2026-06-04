@@ -21,7 +21,9 @@ def make_sensor() -> SensorFactory:
     def _make_sensor(
         suggested_display_precision: None | int = 2,
     ) -> tuple[RecordingSession, Sensor]:
-        session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+        session = RecordingSession(
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
+        )
         sensor_info = SensorInfo(
             name="test",
             unit_of_measurement="kWh",

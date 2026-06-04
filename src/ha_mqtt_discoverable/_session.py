@@ -159,6 +159,9 @@ class MqttSession:
             password=self._settings.password,
             identifier=self._settings.client_name,
             tls_params=self._build_tls_params(),
+            transport=self._settings.transport,
+            websocket_path=self._settings.websocket_path,
+            websocket_headers=self._settings.websocket_headers,
             will=aiomqtt.Will(
                 topic=self.status_topic,
                 payload="offline",

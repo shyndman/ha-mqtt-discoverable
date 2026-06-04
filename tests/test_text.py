@@ -15,12 +15,16 @@ async def noop_command_callback(_sender: Text, _message: object) -> None:
 
 @pytest.fixture
 def text() -> Text:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     return Text(session, TextInfo(name="test", min=5), noop_command_callback)
 
 
 def test_required_config():
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     text = Text(session, TextInfo(name="test"), noop_command_callback)
     assert text is not None
 

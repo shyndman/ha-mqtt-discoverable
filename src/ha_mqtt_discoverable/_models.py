@@ -12,11 +12,21 @@
 #    See the License for the specific language governing permissions and
 #    limitations under the License.
 
-from typing import TypeVar, cast
+from typing import ClassVar, Final, Literal, Self, TypeVar, cast
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
 type ValidatorValues = dict[str, object]
+
+type MqttTransport = Literal["tcp", "websockets"]
+
+_MQTT_DEFAULT_PORTS: Final[dict[str, int]] = {
+    "mqtt": 1883,
+    "mqtts": 8883,
+    "ws": 80,
+    "wss": 443,
+}
 
 
 class DeviceInfo(BaseModel):
@@ -125,8 +135,17 @@ class Settings:
     class MQTT(BaseModel):
         """Connection settings for the MQTT broker"""
 
-        host: str = "homeassistant"
-        port: int = 1883
+        model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
+
+        _host: str = PrivateAttr()
+        _port: int = PrivateAttr()
+        _transport: MqttTransport = PrivateAttr()
+        _websocket_path: str | None = PrivateAttr()
+        _use_tls: bool = PrivateAttr()
+
+        url: str
+        """Broker URL. Supported schemes are mqtt, mqtts, ws, and wss. The URL
+        sets host, port, transport, websocket path, and TLS intent."""
         username: str | None = None
         password: str | None = None
         client_name: str
@@ -135,7 +154,9 @@ class Settings:
         whose retained Last-Will message marks connection-dependent entities offline when the
         publisher dies. Two projects must use distinct client_names to avoid clobbering each
         other's availability."""
-        use_tls: bool = False
+        websocket_headers: dict[str, str] | None = None
+        """Extra HTTP headers sent during the websocket handshake. Only meaningful
+        when transport is "websockets"."""
         tls_key: str | None = None
         tls_certfile: str | None = None
         tls_ca_cert: str | None = None
@@ -144,3 +165,52 @@ class Settings:
         """The root of the topic tree where HA is listening for messages"""
         state_prefix: str = "hmd"
         """The root of the topic tree ha-mqtt-discovery publishes its state messages"""
+
+        @model_validator(mode="after")
+        def validate_url(self) -> Self:
+            try:
+                parts = urlsplit(self.url)
+                port = parts.port
+            except ValueError as error:
+                raise ValueError(f"Invalid MQTT URL '{self.url}': {error}") from error
+
+            scheme = parts.scheme
+            default_port = _MQTT_DEFAULT_PORTS.get(scheme)
+            if default_port is None:
+                supported_schemes = ", ".join(_MQTT_DEFAULT_PORTS)
+                raise ValueError(f"MQTT URL scheme must be one of: {supported_schemes}")
+            if parts.hostname is None:
+                raise ValueError("MQTT URL must include a host")
+            if parts.query or parts.fragment:
+                raise ValueError("MQTT URL must not include a query string or fragment")
+            if scheme in {"mqtt", "mqtts"} and parts.path:
+                raise ValueError("MQTT URL paths are only valid for ws and wss schemes")
+
+            self._host = parts.hostname
+            self._port = port if port is not None else default_port
+            self._transport = "websockets" if scheme in {"ws", "wss"} else "tcp"
+            self._websocket_path = (
+                parts.path or None if self._transport == "websockets" else None
+            )
+            self._use_tls = scheme in {"mqtts", "wss"}
+            return self
+
+        @property
+        def host(self) -> str:
+            return self._host
+
+        @property
+        def port(self) -> int:
+            return self._port
+
+        @property
+        def transport(self) -> MqttTransport:
+            return self._transport
+
+        @property
+        def websocket_path(self) -> str | None:
+            return self._websocket_path
+
+        @property
+        def use_tls(self) -> bool:
+            return self._use_tls

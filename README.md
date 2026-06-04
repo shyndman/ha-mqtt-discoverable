@@ -50,11 +50,20 @@ ha-mqtt-discoverable runs on Python 3.13 or later.
 All examples below use the async-native API:
 
 ```py
-async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
     entity = SomeEntity(mqtt, SomeEntityInfo(...))
     await entity.write_config()
     await entity.set_state(...)
 ```
+
+Broker URLs can carry the transport, host, port, and websocket path:
+
+```py
+Settings.MQTT(url="wss://broker.example:443/mqtt", client_name="my-project")
+```
+
+Supported schemes are `mqtt`, `mqtts`, `ws`, and `wss`. Default ports are 1883,
+8883, 80, and 443 respectively. Paths are only valid for `ws` and `wss`.
 
 <!-- Please keep the entities in alphabetical order -->
 ## Supported entities
@@ -91,7 +100,7 @@ from ha_mqtt_discoverable.sensors import BinarySensor, BinarySensorInfo
 async def main() -> None:
     sensor_info = BinarySensorInfo(name="MySensor", device_class="motion")
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         sensor = BinarySensor(mqtt, sensor_info)
         await sensor.on()
         await sensor.off()
@@ -119,7 +128,7 @@ async def on_press(_sender: Button, _message: Message) -> None:
 
 
 async def main() -> None:
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         button = Button(mqtt, ButtonInfo(name="test"), on_press)
         await button.write_config()
 ```
@@ -142,7 +151,7 @@ async def on_camera_command(sender: Camera, message: Message) -> None:
 async def main() -> None:
     camera_info = CameraInfo(name="test", topic="zanzito/shared_locations/my-device")
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         camera = Camera(mqtt, camera_info, on_camera_command)
         await camera.set_topic("zanzito/shared_locations/my-device")
 ```
@@ -158,7 +167,7 @@ from aiomqtt import Message
 
 
 async def main() -> None:
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         cover: Cover
 
         async def on_cover_command(sender: Cover, message: Message) -> None:
@@ -206,7 +215,7 @@ async def main() -> None:
         device=device_info,
     )
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         motion_sensor = BinarySensor(mqtt, motion_sensor_info)
         door_sensor = BinarySensor(mqtt, door_sensor_info)
         await motion_sensor.on()
@@ -232,7 +241,7 @@ async def main() -> None:
         device=device_info,
     )
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         trigger = DeviceTrigger(mqtt, trigger_info)
         await trigger.trigger("My custom payload")
 ```
@@ -249,7 +258,7 @@ from ha_mqtt_discoverable.sensors import Image, ImageInfo
 async def main() -> None:
     image_info = ImageInfo(name="test", url_topic="topic_to_publish_url_to")
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         image = Image(mqtt, image_info)
         await image.set_url("http://camera.local/latest.jpg")
 ```
@@ -276,7 +285,7 @@ async def main() -> None:
         effect_list=["blink", "my_custom_effect"],
     )
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         light: Light
 
         async def on_light_command(sender: Light, message: Message) -> None:
@@ -318,7 +327,7 @@ async def main() -> None:
         source_list=["tv", "bluetooth"],
     )
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         player: MediaPlayer
 
         async def play(sender: MediaPlayer, _message: Message) -> None:
@@ -357,7 +366,7 @@ from ha_mqtt_discoverable.sensors import Number, NumberInfo
 async def main() -> None:
     number_info = NumberInfo(name="test", min=0, max=50, mode="slider", step=5)
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         number: Number
 
         async def on_number(sender: Number, message: Message) -> None:
@@ -383,7 +392,7 @@ from aiomqtt import Message
 async def main() -> None:
     select_info = SelectInfo(name="test", options=["option1", "option2", "option3"])
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         async def on_select(sender: Select, message: Message) -> None:
             payload = message.payload.decode()
             do_something(payload)
@@ -409,7 +418,7 @@ async def main() -> None:
         unit_of_measurement="°C",
     )
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         sensor = Sensor(mqtt, sensor_info)
         await sensor.set_state(20.5)
 ```
@@ -425,7 +434,7 @@ from aiomqtt import Message
 
 
 async def main() -> None:
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         switch: Switch
 
         async def on_switch(sender: Switch, message: Message) -> None:
@@ -454,7 +463,7 @@ from ha_mqtt_discoverable.sensors import Text, TextInfo
 
 
 async def main() -> None:
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         async def on_text(sender: Text, message: Message) -> None:
             text = message.payload.decode()
             logging.info("Received %s from HA", text)
@@ -484,7 +493,7 @@ async def main() -> None:
         release_url="https://github.com/myproject/releases",
     )
 
-    async with MqttSession(Settings.MQTT(host="localhost", client_name="my-project")) as mqtt:
+    async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-project")) as mqtt:
         update: Update
 
         async def install(sender: Update, message: Message) -> None:

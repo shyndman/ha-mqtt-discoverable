@@ -13,7 +13,9 @@ async def noop_command_callback(_sender: Cover, _message: object) -> None:
 
 @pytest.fixture
 def cover() -> Cover:
-    session = RecordingSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = RecordingSession(
+        Settings.MQTT(url="mqtt://localhost", client_name="test")
+    )
     return Cover(session, CoverInfo(name="test"), noop_command_callback)
 
 

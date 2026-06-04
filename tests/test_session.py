@@ -15,7 +15,7 @@ class DiscoverableHarness(Discoverable[EntityInfo]):
 
 def test_session_exposes_config_prefixes_without_connecting() -> None:
     mqtt_settings = Settings.MQTT(
-        host="localhost",
+        url="mqtt://localhost",
         client_name="test",
         discovery_prefix="custom_discovery",
         state_prefix="custom_state",
@@ -29,7 +29,7 @@ def test_session_exposes_config_prefixes_without_connecting() -> None:
 
 
 def test_session_allows_multiple_entities() -> None:
-    session = MqttSession(Settings.MQTT(host="localhost", client_name="test"))
+    session = MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="test"))
 
     first = DiscoverableHarness(
         session,
@@ -50,7 +50,7 @@ def test_session_allows_availability_registration_after_connect() -> None:
         observed: dict[str, str] = {}
 
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test")
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
         ) as session:
 
             async def callback(message: Message) -> None:
@@ -86,7 +86,7 @@ def test_session_dispatches_pre_registered_subscriptions() -> None:
             observed["payload"] = message.payload.decode("utf-8")
             received.set()
 
-        session = MqttSession(Settings.MQTT(host="localhost", client_name="test"))
+        session = MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="test"))
         session.subscribe(topic, callback)
 
         async with session:
@@ -105,7 +105,7 @@ def test_session_failure_poisons_later_operations() -> None:
 
         with pytest.raises(RuntimeError, match="boom"):
             async with MqttSession(
-                Settings.MQTT(host="localhost", client_name="test")
+                Settings.MQTT(url="mqtt://localhost", client_name="test")
             ) as session:
 
                 async def callback(message: Message) -> None:
@@ -132,7 +132,7 @@ def test_session_dispatches_wildcard_subscription() -> None:
             observed["payload"] = message.payload.decode("utf-8")
             received.set()
 
-        session = MqttSession(Settings.MQTT(host="localhost", client_name="test"))
+        session = MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="test"))
         session.subscribe("hmd/session/wild/+", callback)
 
         async with session:
@@ -158,7 +158,7 @@ def test_callback_error_handler_handles_and_keeps_session_alive() -> None:
             raise RuntimeError("boom")
 
         async with MqttSession(
-            Settings.MQTT(host="localhost", client_name="test"),
+            Settings.MQTT(url="mqtt://localhost", client_name="test"),
             on_callback_error=on_error,
         ) as session:
             session.subscribe(topic, callback)
@@ -187,7 +187,7 @@ def test_callback_error_handler_raising_poisons_session() -> None:
 
         with pytest.raises(RuntimeError, match="handler-boom"):
             async with MqttSession(
-                Settings.MQTT(host="localhost", client_name="test"),
+                Settings.MQTT(url="mqtt://localhost", client_name="test"),
                 on_callback_error=on_error,
             ) as session:
                 session.subscribe(topic, callback)
@@ -204,8 +204,112 @@ def test_build_status_topic() -> None:
     assert build_status_topic("custom", "my-bridge") == "custom/my-bridge/status"
 
 
+def test_transport_defaults_to_tcp() -> None:
+    settings = Settings.MQTT(url="mqtt://localhost", client_name="test")
+    assert settings.transport == "tcp"
+    assert settings.websocket_path is None
+    assert settings.websocket_headers is None
+
+
+@pytest.mark.parametrize("legacy_arg", ["host", "port", "use_tls"])
+def test_mqtt_url_replaces_legacy_connection_params(legacy_arg: str) -> None:
+    with pytest.raises(ValueError):
+        Settings.MQTT.model_validate(
+            {"url": "mqtt://localhost", "client_name": "test", legacy_arg: "unused"}
+        )
+
+
+@pytest.mark.parametrize(
+    ("url", "host", "port", "transport", "websocket_path", "use_tls"),
+    [
+        ("mqtt://mqtt.example", "mqtt.example", 1883, "tcp", None, False),
+        ("mqtts://mqtt.example", "mqtt.example", 8883, "tcp", None, True),
+        ("ws://mqtt.example", "mqtt.example", 80, "websockets", None, False),
+        ("wss://mqtt.example/mqtt", "mqtt.example", 443, "websockets", "/mqtt", True),
+        (
+            "wss://mqtt.example:8443/mqtt",
+            "mqtt.example",
+            8443,
+            "websockets",
+            "/mqtt",
+            True,
+        ),
+    ],
+)
+def test_mqtt_url_derives_connection_settings(
+    url: str,
+    host: str,
+    port: int,
+    transport: str,
+    websocket_path: str | None,
+    use_tls: bool,
+) -> None:
+    settings = Settings.MQTT(url=url, client_name="test")
+
+    assert settings.host == host
+    assert settings.port == port
+    assert settings.transport == transport
+    assert settings.websocket_path == websocket_path
+    assert settings.use_tls is use_tls
+
+
+@pytest.mark.parametrize("url", ["mqtt://mqtt.example/mqtt", "mqtts://mqtt.example/"])
+def test_mqtt_url_rejects_paths_for_tcp_schemes(url: str) -> None:
+    with pytest.raises(ValueError, match="paths are only valid"):
+        Settings.MQTT(url=url, client_name="test")
+
+
+@pytest.mark.parametrize(
+    "url", ["http://mqtt.example", "mqtt://", "wss://mqtt.example/mqtt?x=1"]
+)
+def test_mqtt_url_rejects_invalid_urls(url: str) -> None:
+    with pytest.raises(ValueError):
+        Settings.MQTT(url=url, client_name="test")
+
+
+def test_session_forwards_websocket_settings_to_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _StopConnect(Exception):
+        pass
+
+    class _CapturingClient:
+        def __init__(self, host: str, **kwargs: object) -> None:
+            captured["host"] = host
+            captured.update(kwargs)
+
+        async def __aenter__(self) -> "_CapturingClient":
+            raise _StopConnect
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(aiomqtt, "Client", _CapturingClient)
+
+    settings = Settings.MQTT(
+        client_name="ws-test",
+        url="wss://broker:8443/mqtt",
+        websocket_headers={"Authorization": "Bearer token"},
+    )
+
+    async def scenario() -> None:
+        with pytest.raises(_StopConnect):
+            async with MqttSession(settings):
+                pass
+
+    asyncio.run(scenario())
+
+    assert captured["host"] == "broker"
+    assert captured["port"] == 8443
+    assert captured["transport"] == "websockets"
+    assert captured["websocket_path"] == "/mqtt"
+    assert captured["websocket_headers"] == {"Authorization": "Bearer token"}
+
+
 def test_session_publishes_retained_online_then_offline_on_status_topic() -> None:
-    settings = Settings.MQTT(host="localhost", client_name="lifecycle-test")
+    settings = Settings.MQTT(url="mqtt://localhost", client_name="lifecycle-test")
     status_topic = build_status_topic(settings.state_prefix, settings.client_name)
 
     async def read_retained(topic: str) -> str | None:

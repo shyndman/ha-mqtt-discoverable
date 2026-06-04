@@ -19,18 +19,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install poetry
-        run: pipx install poetry
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.10"
-          cache: "poetry"
+          python-version: "3.13"
+          enable-cache: true
       - name: Install dependencies
-        run: poetry install
+        run: uv sync --locked
       # Setup mosquitto broker for running tests
       - name: Setup mosquitto
         run: |
           docker run -d -v "${GITHUB_WORKSPACE}/tests/mosquitto.conf:/mosquitto/config/mosquitto.conf" -p 1883:1883 eclipse-mosquitto
       - name: Run tests
-        run: poetry run pytest
+        run: uv run pytest

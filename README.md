@@ -56,10 +56,10 @@ async with MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="my-pro
     await entity.set_state(...)
 ```
 
-Broker URLs can carry the transport, host, port, and websocket path:
+Broker URLs can carry the transport, username, password, host, port, and websocket path:
 
 ```py
-Settings.MQTT(url="wss://broker.example:443/mqtt", client_name="my-project")
+Settings.MQTT(url="wss://user:password@broker.example:443/mqtt", client_name="my-project")
 ```
 
 Supported schemes are `mqtt`, `mqtts`, `ws`, and `wss`. Default ports are 1883,

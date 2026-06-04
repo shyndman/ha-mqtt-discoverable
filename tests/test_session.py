@@ -4,6 +4,7 @@ import aiomqtt
 import pytest
 from aiomqtt import Message
 
+import ha_mqtt_discoverable._session as session_module
 from ha_mqtt_discoverable import EntityInfo, MqttSession, Settings
 from ha_mqtt_discoverable._base import Discoverable
 from ha_mqtt_discoverable._topic_paths import build_status_topic
@@ -211,7 +212,9 @@ def test_transport_defaults_to_tcp() -> None:
     assert settings.websocket_headers is None
 
 
-@pytest.mark.parametrize("legacy_arg", ["host", "port", "use_tls"])
+@pytest.mark.parametrize(
+    "legacy_arg", ["host", "port", "use_tls", "username", "password"]
+)
 def test_mqtt_url_replaces_legacy_connection_params(legacy_arg: str) -> None:
     with pytest.raises(ValueError):
         Settings.MQTT.model_validate(
@@ -251,6 +254,17 @@ def test_mqtt_url_derives_connection_settings(
     assert settings.transport == transport
     assert settings.websocket_path == websocket_path
     assert settings.use_tls is use_tls
+
+
+def test_mqtt_url_derives_credentials_and_redacted_url() -> None:
+    settings = Settings.MQTT(
+        url="wss://user%40example:secret%3Avalue@mqtt.example:8443/mqtt",
+        client_name="test",
+    )
+
+    assert settings.username == "user@example"
+    assert settings.password == "secret:value"
+    assert settings.redacted_url == "wss://***:***@mqtt.example:8443/mqtt"
 
 
 @pytest.mark.parametrize("url", ["mqtt://mqtt.example/mqtt", "mqtts://mqtt.example/"])
@@ -306,6 +320,95 @@ def test_session_forwards_websocket_settings_to_client(
     assert captured["transport"] == "websockets"
     assert captured["websocket_path"] == "/mqtt"
     assert captured["websocket_headers"] == {"Authorization": "Bearer token"}
+
+
+def test_session_forwards_credentials_from_url_to_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _StopConnect(Exception):
+        pass
+
+    class _CapturingClient:
+        def __init__(self, host: str, **kwargs: object) -> None:
+            captured["host"] = host
+            captured.update(kwargs)
+
+        async def __aenter__(self) -> "_CapturingClient":
+            raise _StopConnect
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(aiomqtt, "Client", _CapturingClient)
+
+    settings = Settings.MQTT(
+        client_name="auth-test",
+        url="mqtt://user:secret@broker",
+    )
+
+    async def scenario() -> None:
+        with pytest.raises(_StopConnect):
+            async with MqttSession(settings):
+                pass
+
+    asyncio.run(scenario())
+
+    assert captured["username"] == "user"
+    assert captured["password"] == "secret"
+
+
+def test_session_logs_redacted_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_client: dict[str, object] = {}
+    captured_logs: list[dict[str, object]] = []
+
+    class _StopConnect(Exception):
+        pass
+
+    class _CapturingLogger:
+        def info(self, event: str, *args: object, **kwargs: object) -> object:
+            _ = args
+            captured_logs.append({"event": event, **kwargs})
+            return None
+
+        def exception(self, event: str, *args: object, **kwargs: object) -> object:
+            _ = event, args, kwargs
+            return None
+
+    class _CapturingClient:
+        def __init__(self, host: str, **kwargs: object) -> None:
+            captured_client["host"] = host
+            captured_client.update(kwargs)
+
+        async def __aenter__(self) -> "_CapturingClient":
+            raise _StopConnect
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    monkeypatch.setattr(aiomqtt, "Client", _CapturingClient)
+    monkeypatch.setattr(session_module, "logger", _CapturingLogger())
+
+    settings = Settings.MQTT(
+        client_name="auth-test",
+        url="mqtt://user:secret@broker",
+    )
+
+    async def scenario() -> None:
+        with pytest.raises(_StopConnect):
+            async with MqttSession(settings):
+                pass
+
+    asyncio.run(scenario())
+
+    assert captured_client["username"] == "user"
+    assert captured_client["password"] == "secret"
+    assert captured_logs == [
+        {"event": "connecting to mqtt", "url": "mqtt://***:***@broker:1883"}
+    ]
+    assert "user" not in repr(captured_logs)
+    assert "secret" not in repr(captured_logs)
 
 
 def test_session_publishes_retained_online_then_offline_on_status_topic() -> None:

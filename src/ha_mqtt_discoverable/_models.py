@@ -13,7 +13,7 @@
 #    limitations under the License.
 
 from typing import ClassVar, Final, Literal, Self, TypeVar, cast
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, PrivateAttr, model_validator
 
@@ -142,12 +142,13 @@ class Settings:
         _transport: MqttTransport = PrivateAttr()
         _websocket_path: str | None = PrivateAttr()
         _use_tls: bool = PrivateAttr()
+        _username: str | None = PrivateAttr()
+        _password: str | None = PrivateAttr()
+        _redacted_url: str = PrivateAttr()
 
         url: str
         """Broker URL. Supported schemes are mqtt, mqtts, ws, and wss. The URL
-        sets host, port, transport, websocket path, and TLS intent."""
-        username: str | None = None
-        password: str | None = None
+        sets username, password, host, port, transport, websocket path, and TLS intent."""
         client_name: str
         """A stable, unique-per-project identifier for this publisher. Required: it
         names the session-level availability/status topic ({state_prefix}/{client_name}/status)
@@ -193,7 +194,25 @@ class Settings:
                 parts.path or None if self._transport == "websockets" else None
             )
             self._use_tls = scheme in {"mqtts", "wss"}
+            self._username = (
+                unquote(parts.username) if parts.username is not None else None
+            )
+            self._password = (
+                unquote(parts.password) if parts.password is not None else None
+            )
+            host = f"[{self._host}]" if ":" in self._host else self._host
+            userinfo = (
+                "***:***@"
+                if parts.username is not None or parts.password is not None
+                else ""
+            )
+            path = self._websocket_path or ""
+            self._redacted_url = f"{scheme}://{userinfo}{host}:{self._port}{path}"
             return self
+
+        @property
+        def redacted_url(self) -> str:
+            return self._redacted_url
 
         @property
         def host(self) -> str:
@@ -214,3 +233,11 @@ class Settings:
         @property
         def use_tls(self) -> bool:
             return self._use_tls
+
+        @property
+        def username(self) -> str | None:
+            return self._username
+
+        @property
+        def password(self) -> str | None:
+            return self._password

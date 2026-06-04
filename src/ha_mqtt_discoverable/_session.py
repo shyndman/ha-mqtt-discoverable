@@ -151,7 +151,8 @@ class MqttSession:
 
         host = self._settings.host
         port = self._settings.port
-        logger.info("connecting to mqtt", host=host, port=port)
+        redacted_url = self._settings.redacted_url
+        logger.info("connecting to mqtt", url=redacted_url)
         client = aiomqtt.Client(
             host,
             port=port,
@@ -184,7 +185,7 @@ class MqttSession:
             self._client = None
             raise
 
-        logger.info("connected to mqtt", host=host, port=port)
+        logger.info("connected to mqtt", url=redacted_url)
         return self
 
     async def __aexit__(
@@ -225,8 +226,7 @@ class MqttSession:
                     exit_error = error
             logger.info(
                 "disconnecting from mqtt",
-                host=self._settings.host,
-                port=self._settings.port,
+                url=self._settings.redacted_url,
             )
             try:
                 await client.__aexit__(exc_type, exc, tb)

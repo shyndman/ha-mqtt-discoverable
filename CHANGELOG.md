@@ -9,6 +9,10 @@
 
 # Changelog
 
+## 1.1.0
+
+- Reject media-player ON/OFF command payloads that are not exactly `ON`/`OFF`, logging a warning instead of silently treating them as off
+
 ## 0.15.0
 
 - Removed `thelogrus` from the dependency list

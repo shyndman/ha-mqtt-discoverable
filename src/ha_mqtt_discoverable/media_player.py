@@ -1,7 +1,16 @@
 import asyncio
 from collections.abc import Awaitable, Callable
 from enum import Enum
-from typing import ClassVar, Final, TypeAlias, TypedDict, cast, final, override
+from typing import (
+    ClassVar,
+    Final,
+    TypeAlias,
+    TypedDict,
+    assert_never,
+    cast,
+    final,
+    override,
+)
 
 from aiomqtt import Message
 from pydantic import BaseModel, ValidationError
@@ -432,7 +441,19 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
                     raise ValueError(f"invalid float payload for {command}") from exc
 
             case MediaPlayerPayloadParser.BOOL_ON_OFF:
-                return payload.upper() == "ON"
+                normalized = payload.strip().upper()
+                if normalized == "ON":
+                    return True
+                if normalized == "OFF":
+                    return False
+                logger.warning(
+                    "rejecting media player command with invalid bool payload",
+                    entity=self._entity.name,
+                    command=command,
+                    payload=payload,
+                    valid_values=["ON", "OFF"],
+                )
+                raise ValueError(f"invalid bool payload for {command}")
 
             case MediaPlayerPayloadParser.REPEAT_MODE:
                 try:
@@ -463,6 +484,9 @@ class MediaPlayer(Discoverable[MediaPlayerInfo]):
 
             case MediaPlayerPayloadParser.STRING:
                 return payload
+
+            case _:
+                assert_never(spec.payload_parser)
 
     @override
     def generate_config(self) -> dict[str, object]:

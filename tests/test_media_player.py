@@ -343,3 +343,63 @@ def test_invalid_parsed_payload_does_not_invoke_callback():
         assert called.is_set() is False
 
     asyncio.run(scenario())
+
+
+def test_bool_command_rejects_non_on_off():
+    async def scenario() -> None:
+        called = asyncio.Event()
+
+        async with MqttSession(
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
+        ) as session:
+
+            async def shuffle_callback(
+                _sender: MediaPlayer,
+                _value: bool,
+                _message: Message,
+            ) -> None:
+                called.set()
+
+            player = MediaPlayer(
+                session,
+                MediaPlayerInfo(name="test_bool_reject"),
+                {"shuffle_set": shuffle_callback},
+            )
+            topic = config_string(player.generate_config(), "shuffle_set_topic")
+            await session.publish(topic, "true")
+            await asyncio.sleep(0.2)
+
+        assert called.is_set() is False
+
+    asyncio.run(scenario())
+
+
+def test_bool_command_off_delivers_false():
+    async def scenario() -> None:
+        received = asyncio.Event()
+        observed: list[bool] = []
+
+        async with MqttSession(
+            Settings.MQTT(url="mqtt://localhost", client_name="test")
+        ) as session:
+
+            async def shuffle_callback(
+                _sender: MediaPlayer,
+                value: bool,
+                _message: Message,
+            ) -> None:
+                observed.append(value)
+                received.set()
+
+            player = MediaPlayer(
+                session,
+                MediaPlayerInfo(name="test_bool_off"),
+                {"shuffle_set": shuffle_callback},
+            )
+            topic = config_string(player.generate_config(), "shuffle_set_topic")
+            await session.publish(topic, "OFF")
+            await asyncio.wait_for(received.wait(), timeout=2)
+
+        assert observed == [False]
+
+    asyncio.run(scenario())

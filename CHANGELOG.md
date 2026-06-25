@@ -12,6 +12,7 @@
 ## 1.1.0
 
 - Reject media-player ON/OFF command payloads that are not exactly `ON`/`OFF`, logging a warning instead of silently treating them as off
+- Dispatch MQTT command callbacks concurrently as tracked tasks so a slow callback on one topic no longer blocks other entities' callbacks; in-flight callbacks are drained on shutdown (drops the implicit in-order/no-overlap delivery guarantee)
 
 ## 0.15.0
 

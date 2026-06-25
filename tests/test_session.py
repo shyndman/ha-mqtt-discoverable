@@ -435,3 +435,30 @@ def test_session_publishes_retained_online_then_offline_on_status_topic() -> Non
         assert await read_retained(status_topic) == "offline"
 
     asyncio.run(scenario())
+
+
+def test_session_dispatches_concurrently() -> None:
+    async def scenario() -> None:
+        gate = asyncio.Event()
+        done: list[str] = []
+
+        async def slow(_message: Message) -> None:
+            await asyncio.wait_for(gate.wait(), timeout=2)
+            done.append("slow")
+
+        async def fast(_message: Message) -> None:
+            gate.set()
+            done.append("fast")
+
+        session = MqttSession(Settings.MQTT(url="mqtt://localhost", client_name="test"))
+        session.subscribe("hmd/session/conc/slow", slow)
+        session.subscribe("hmd/session/conc/fast", fast)
+        async with session:
+            await session.publish("hmd/session/conc/slow", "x")
+            await session.publish("hmd/session/conc/fast", "y")
+            async with asyncio.timeout(3):
+                while len(done) < 2:
+                    await asyncio.sleep(0.01)
+        assert set(done) == {"slow", "fast"}
+
+    asyncio.run(scenario())

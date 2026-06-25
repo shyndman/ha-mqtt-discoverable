@@ -101,6 +101,7 @@ class MqttSession:
     _client: aiomqtt.Client | None
     _listener_task: asyncio.Task[None] | None
     _subscription_tasks: set[asyncio.Task[object]]
+    _dispatch_tasks: set[asyncio.Task[None]]
     _subscriptions: dict[str, _Subscription]
     _failure: Exception | None
     _on_callback_error: CallbackErrorHandler | None
@@ -115,6 +116,7 @@ class MqttSession:
         self._client = None
         self._listener_task = None
         self._subscription_tasks = set()
+        self._dispatch_tasks = set()
         self._subscriptions = {}
         self._failure = None
         self._on_callback_error = on_callback_error
@@ -217,6 +219,7 @@ class MqttSession:
                 self._store_failure(error)
                 if exit_error is None:
                     exit_error = error
+        await self._await_dispatch_tasks()
         if client is not None:
             try:
                 await client.publish(self.status_topic, "offline", retain=True, qos=1)
@@ -361,10 +364,16 @@ class MqttSession:
 
         self._subscriptions[subscription.topic] = subscription
         if self._client is not None:
-            self._track_subscription_task(
+            # A subscribe runs as a detached task because it is started from a
+            # synchronous caller (entity constructors), so its failure (local
+            # error or a rejected broker SUBACK) cannot be raised to that
+            # caller. By design that poisons the whole session rather than
+            # silently losing one entity's subscription.
+            self._track_task(
                 asyncio.create_task(
                     self.client.subscribe(subscription.topic, qos=subscription.qos)
-                )
+                ),
+                self._subscription_tasks,
             )
 
     async def _subscribe_all_registered_topics(self) -> None:
@@ -378,6 +387,10 @@ class MqttSession:
     async def _listen(self) -> None:
         try:
             async for message in self.client.messages:
+                # A prior callback may have poisoned the session; stop
+                # dispatching once it has. Raises here, is caught below, and
+                # ends the listener loudly.
+                self._raise_if_poisoned()
                 topic = str(message.topic)
                 logger.debug(
                     "received mqtt message",
@@ -393,7 +406,10 @@ class MqttSession:
                 for subscription in tuple(self._subscriptions.values()):
                     if mqtt.topic_matches_sub(subscription.topic, topic):
                         dispatched = True
-                        await self._dispatch(subscription, message)
+                        self._track_task(
+                            asyncio.create_task(self._dispatch(subscription, message)),
+                            self._dispatch_tasks,
+                        )
                 if not dispatched:
                     logger.debug("no subscription matched message", topic=topic)
         except asyncio.CancelledError:
@@ -414,7 +430,7 @@ class MqttSession:
             # runtime, per-message event -- the session, connection, and
             # subscription are all still healthy -- so it is treated separately
             # from a failure to *establish* a subscription (see
-            # _track_subscription_task). If the application provided an error
+            # _track_task). If the application provided an error
             # handler it gets a chance to deal with it; returning cleanly means
             # the failure is handled and the listener keeps serving every other
             # entity. With no handler (or if the handler itself raises) we fall
@@ -430,23 +446,28 @@ class MqttSession:
             pending = tuple(self._subscription_tasks)
             await asyncio.gather(*pending)
 
-    def _track_subscription_task(self, task: asyncio.Task[object]) -> None:
-        self._subscription_tasks.add(task)
+    async def _await_dispatch_tasks(self) -> None:
+        # The listener is already stopped, so no new dispatch tasks appear.
+        # Failures were routed to _store_failure by each task's done-callback;
+        # drain so in-flight callbacks finish before we disconnect.
+        if self._dispatch_tasks:
+            await asyncio.gather(*tuple(self._dispatch_tasks), return_exceptions=True)
 
-        def cleanup(completed: asyncio.Task[object]) -> None:
-            self._subscription_tasks.discard(completed)
+    def _track_task[T](
+        self, task: asyncio.Task[T], registry: set[asyncio.Task[T]]
+    ) -> None:
+        registry.add(task)
+
+        def cleanup(completed: asyncio.Task[T]) -> None:
+            registry.discard(completed)
             if completed.cancelled():
                 return
             error = completed.exception()
             if isinstance(error, Exception):
-                # A subscribe runs as a detached task because it is started
-                # from a synchronous caller (entity constructors), so its
-                # failure (local error or a rejected broker SUBACK) cannot be
-                # raised to that caller. By design we poison the whole session
-                # rather than let one entity silently lose its subscription:
-                # the next session operation re-raises this, failing loudly.
-                # This is intentionally all-or-nothing -- we do not support
-                # continuing with partial functionality.
+                # A detached task failing poisons the whole session: the next
+                # session operation re-raises this, failing loudly.
+                # Intentionally all-or-nothing -- we do not continue with
+                # partial functionality.
                 self._store_failure(error)
 
         task.add_done_callback(cleanup)

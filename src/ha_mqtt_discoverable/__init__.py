@@ -29,6 +29,7 @@ from ha_mqtt_discoverable._session import (
     CommandPayloadParser,
     MqttSession,
     ParsedCommandCallback,
+    SessionLike,
 )
 
 __version__ = metadata.version(cast(str, __package__))
@@ -43,6 +44,7 @@ __all__ = [
     "EntityType",
     "MqttSession",
     "ParsedCommandCallback",
+    "SessionLike",
     "Settings",
     "Subscriber",
     "ValidatorValues",

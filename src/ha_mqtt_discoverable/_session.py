@@ -104,6 +104,8 @@ class MqttSession:
     _dispatch_tasks: set[asyncio.Task[None]]
     _subscriptions: dict[str, _Subscription]
     _failure: Exception | None
+    _closed: bool
+    _closed_event: asyncio.Event
     _on_callback_error: CallbackErrorHandler | None
 
     def __init__(
@@ -119,6 +121,8 @@ class MqttSession:
         self._dispatch_tasks = set()
         self._subscriptions = {}
         self._failure = None
+        self._closed = False
+        self._closed_event = asyncio.Event()
         self._on_callback_error = on_callback_error
 
     @property
@@ -172,6 +176,8 @@ class MqttSession:
                 retain=True,
             ),
         )
+        self._closed = False
+        self._closed_event.clear()
         self._client = client
 
         try:
@@ -238,10 +244,22 @@ class MqttSession:
                 if exit_error is None:
                     exit_error = error
 
+        self._mark_closed()
+
         if exc is None:
             if exit_error is not None:
                 raise RuntimeError("MQTT session is poisoned") from exit_error
             self._raise_if_poisoned()
+
+    async def wait_closed(self) -> None:
+        self._raise_if_poisoned()
+        if self._closed:
+            return
+        if self._client is None:
+            raise RuntimeError("MQTT session is not connected")
+
+        await self._closed_event.wait()
+        self._raise_if_poisoned()
 
     async def publish(
         self,
@@ -417,6 +435,9 @@ class MqttSession:
         except Exception as error:
             self._store_failure(error)
             raise
+        else:
+            logger.warning("mqtt listener stream ended unexpectedly")
+            self._store_failure(aiomqtt.MqttError("MQTT message stream ended"))
 
     async def _dispatch(
         self, subscription: _Subscription, message: aiomqtt.Message
@@ -472,9 +493,19 @@ class MqttSession:
 
         task.add_done_callback(cleanup)
 
+    def _mark_closed(self) -> None:
+        self._closed = True
+        self._closed_event.set()
+
     def _store_failure(self, error: Exception) -> None:
         if self._failure is None:
             self._failure = error
+            logger.warning(
+                "mqtt session failed",
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+        self._closed_event.set()
 
     def _raise_if_poisoned(self) -> None:
         if self._failure is not None:

@@ -5,7 +5,7 @@ import pytest
 from aiomqtt import Message
 
 import ha_mqtt_discoverable._session as session_module
-from ha_mqtt_discoverable import EntityInfo, MqttSession, Settings
+from ha_mqtt_discoverable import EntityInfo, MqttSession, SessionLike, Settings
 from ha_mqtt_discoverable._base import Discoverable
 from ha_mqtt_discoverable._topic_paths import build_status_topic
 
@@ -460,5 +460,156 @@ def test_session_dispatches_concurrently() -> None:
                 while len(done) < 2:
                     await asyncio.sleep(0.01)
         assert set(done) == {"slow", "fast"}
+
+    asyncio.run(scenario())
+
+
+def test_session_like_is_publicly_exported() -> None:
+    assert SessionLike is session_module.SessionLike
+
+
+def test_wait_closed_raises_immediately_on_listener_disconnect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    disconnect_gate = asyncio.Event()
+
+    class _DroppingStream:
+        def __aiter__(self) -> "_DroppingStream":
+            return self
+
+        async def __anext__(self) -> Message:
+            await disconnect_gate.wait()
+            raise aiomqtt.MqttError("broker dropped connection")
+
+    class _DroppingClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "_DroppingClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def publish(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def subscribe(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        @property
+        def messages(self) -> _DroppingStream:
+            return _DroppingStream()
+
+    monkeypatch.setattr(aiomqtt, "Client", _DroppingClient)
+
+    async def scenario() -> None:
+        with pytest.raises(aiomqtt.MqttError, match="broker dropped connection"):
+            async with MqttSession(
+                Settings.MQTT(url="mqtt://localhost", client_name="drop-test")
+            ) as session:
+                waiter = asyncio.create_task(session.wait_closed())
+                await asyncio.sleep(0)
+                assert not waiter.done()
+
+                disconnect_gate.set()
+                await asyncio.wait_for(waiter, timeout=2)
+
+    asyncio.run(scenario())
+
+
+def test_wait_closed_raises_on_failed_dynamic_subscription(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stream_gate = asyncio.Event()
+
+    class _IdleStream:
+        def __aiter__(self) -> "_IdleStream":
+            return self
+
+        async def __anext__(self) -> Message:
+            await stream_gate.wait()
+            raise StopAsyncIteration
+
+    class _FailingSubscribeClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            pass
+
+        async def __aenter__(self) -> "_FailingSubscribeClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            stream_gate.set()
+
+        async def publish(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        async def subscribe(self, *_args: object, **_kwargs: object) -> None:
+            raise aiomqtt.MqttError("subscribe rejected")
+
+        @property
+        def messages(self) -> _IdleStream:
+            return _IdleStream()
+
+    monkeypatch.setattr(aiomqtt, "Client", _FailingSubscribeClient)
+
+    async def scenario() -> None:
+        async def noop(_message: Message) -> None:
+            return None
+
+        with pytest.raises(aiomqtt.MqttError, match="subscribe rejected"):
+            async with MqttSession(
+                Settings.MQTT(url="mqtt://localhost", client_name="sub-fail-test")
+            ) as session:
+                waiter = asyncio.create_task(session.wait_closed())
+                await asyncio.sleep(0)
+                session.subscribe("hmd/session/sub-fail", noop)
+                await asyncio.wait_for(waiter, timeout=2)
+
+    asyncio.run(scenario())
+
+
+def test_wait_closed_raises_on_unhandled_callback_failure() -> None:
+    async def scenario() -> None:
+        topic = "hmd/session/wait-closed-callback/command"
+
+        async def callback(_message: Message) -> None:
+            raise RuntimeError("callback-boom")
+
+        with pytest.raises(RuntimeError, match="callback-boom"):
+            async with MqttSession(
+                Settings.MQTT(url="mqtt://localhost", client_name="wait-callback-test")
+            ) as session:
+                session.subscribe(topic, callback)
+                waiter = asyncio.create_task(session.wait_closed())
+                await session.publish(topic, "go")
+                await asyncio.wait_for(waiter, timeout=2)
+
+    asyncio.run(scenario())
+
+
+def test_wait_closed_returns_cleanly_after_normal_exit() -> None:
+    async def scenario() -> None:
+        session = MqttSession(
+            Settings.MQTT(url="mqtt://localhost", client_name="wait-clean-test")
+        )
+        async with session:
+            waiter = asyncio.create_task(session.wait_closed())
+            await asyncio.sleep(0)
+            assert not waiter.done()
+
+        await asyncio.wait_for(waiter, timeout=2)
+        await session.wait_closed()
+
+    asyncio.run(scenario())
+
+
+def test_wait_closed_before_connect_raises() -> None:
+    async def scenario() -> None:
+        session = MqttSession(
+            Settings.MQTT(url="mqtt://localhost", client_name="wait-unconnected")
+        )
+        with pytest.raises(RuntimeError, match="not connected"):
+            await session.wait_closed()
 
     asyncio.run(scenario())
